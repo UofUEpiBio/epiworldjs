@@ -1,29 +1,47 @@
 CXX ?= g++
-CXXFLAGS := -O2 -std=c++17 -Wall -Wextra -pedantic -Ivendor/epiworld -Ivendor/measles
 EMCC ?= emcc
-EMFLAGS := -O3 -std=c++17 -Ivendor/epiworld -Ivendor/measles -lembind -sMODULARIZE -sEXPORT_ES6 -sENVIRONMENT=web,worker,node -sALLOW_MEMORY_GROWTH -sEXPORT_NAME=createEpiworldModule
 
-.PHONY: test wasm clean update-vendors
+CXXFLAGS := -O2 -std=c++17 -Wall -Wextra -Ivendor/epiworld
+EMFLAGS := -O3 -std=c++17 -fwasm-exceptions -Ivendor/epiworld -lembind \
+	-sMODULARIZE -sEXPORT_ES6 -sENVIRONMENT=web,worker,node \
+	-sALLOW_MEMORY_GROWTH -sEXPORT_NAME=createEpiworldModule
 
-test: build/smoke
+EPIWORLD_REPO ?= https://github.com/UofUEpiBio/epiworld.git
+EPIWORLD_REF ?= master
+
+HEADERS := cpp/core.hpp $(shell find vendor/epiworld -name '*.hpp')
+
+.PHONY: test test-native test-wasm wasm clean update-vendors
+
+test: test-native test-wasm
+
+test-native: build/smoke
 	./build/smoke
 
-build/smoke: cpp/smoke.cpp cpp/core.hpp | build
+test-wasm: dist/core.js
+	node --test test/
+
+wasm: dist/core.js
+
+build/smoke: cpp/smoke.cpp $(HEADERS)
+	@mkdir -p $(@D)
 	$(CXX) $(CXXFLAGS) $< -o $@
 
-build:
-	mkdir -p $@
-
-wasm: | dist
-	$(EMCC) $(EMFLAGS) cpp/bindings.cpp -o dist/core.js
-
-dist:
-	mkdir -p $@
+dist/core.js: cpp/bindings.cpp $(HEADERS)
+	@mkdir -p $(@D)
+	$(EMCC) $(EMFLAGS) $< -o $@
 
 clean:
 	rm -rf build dist
 
-# Keep this command explicit: review vendor/VERSIONS after updating a source.
+# Copies epiworld's headers at EPIWORLD_REF (a branch, tag, or commit; the
+# repository can be a local path) and records the commit in vendor/VERSIONS.
 update-vendors:
-	@echo "Fetch the commits recorded in vendor/VERSIONS and copy their public headers."
-
+	rm -rf build/epiworld-src
+	git init --quiet build/epiworld-src
+	git -C build/epiworld-src fetch --quiet --depth 1 $(EPIWORLD_REPO) $(EPIWORLD_REF)
+	git -C build/epiworld-src checkout --quiet FETCH_HEAD
+	rm -rf vendor/epiworld
+	cp -R build/epiworld-src/include/epiworld vendor/epiworld
+	printf '# Vendored header-only dependencies, written by `make update-vendors`.\nepiworld %s %s\n' \
+		$(EPIWORLD_REPO) $$(git -C build/epiworld-src rev-parse HEAD) > vendor/VERSIONS
