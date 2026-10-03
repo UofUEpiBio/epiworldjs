@@ -163,6 +163,10 @@ emcc -O3 -std=c++17 -fwasm-exceptions -lembind \
 
 ## Roadmap
 
+Follow the implementation order in [plan.md](plan.md). Its upstream prerequisite
+is proposed in [epiworld PR #289](https://github.com/UofUEpiBio/epiworld/pull/289);
+that change must merge before updating the vendored headers and proceeding.
+
 1. epiworld: in-memory savers for `run_multiple` and wasm32 fixes.
 2. Scaffold: vendoring, devcontainer, minimal SIRCONN running in Node.
    **Incomplete:** the native smoke test passes, but the WASM build and Node
