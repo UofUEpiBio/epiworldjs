@@ -1,8 +1,8 @@
 # epiworldjs
 
-> **Status: pre-alpha scaffold.** The first native/WebAssembly bridge runs the
-> real SIRCONN model; the broader JavaScript API, worker pool, registry, and
-> web component described below are still in development.
+> **Status: planning / pre-alpha.** Nothing here is usable yet. This README
+> describes the design we are building toward; the full implementation plan
+> is in [`plan.md`](plan.md). Feedback is welcome in the issues.
 
 **epiworldjs** runs the [epiworld](https://github.com/UofUEpiBio/epiworld)
 agent-based epidemiological simulation engine in the browser by compiling
@@ -164,9 +164,10 @@ emcc -O3 -std=c++17 -fwasm-exceptions -lembind \
 ## Roadmap
 
 1. epiworld: in-memory savers for `run_multiple` and wasm32 fixes.
-2. Scaffold: vendoring, devcontainer, minimal SIRCONN bridge. **Done:**
-   `make test` builds and runs a native SIRCONN smoke test; `make wasm` builds
-   the matching embind module inside the pinned devcontainer.
+2. Scaffold: vendoring, devcontainer, minimal SIRCONN running in Node.
+   **Incomplete:** the native smoke test passes, but the WASM build and Node
+   loader remain unverified. The upstream prerequisites in `plan.md` and the
+   correctness findings on PR #1 must be addressed before this stage is done.
 3. Model registry + core for the built-in models; golden tests.
 4. Measles models.
 5. Worker pool and `Epiworld` JS API.
