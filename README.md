@@ -1,8 +1,8 @@
 # epiworldjs
 
 > **Status: planning / pre-alpha.** Nothing here is usable yet. This README
-> describes the design we are building toward; feedback is welcome in the
-> issues.
+> describes the design we are building toward; the full implementation plan
+> is in [`plan.md`](plan.md). Feedback is welcome in the issues.
 
 **epiworldjs** runs the [epiworld](https://github.com/UofUEpiBio/epiworld)
 agent-based epidemiological simulation engine in the browser by compiling
