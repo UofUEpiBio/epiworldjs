@@ -163,8 +163,14 @@ emcc -O3 -std=c++17 -fwasm-exceptions -lembind \
 
 ## Roadmap
 
-1. epiworld: in-memory savers for `run_multiple` and wasm32 fixes.
+Follow the implementation order in [plan.md](plan.md).
+
+1. epiworld: in-memory savers for `run_multiple` and wasm32 fixes
+   ([epiworld#289](https://github.com/UofUEpiBio/epiworld/pull/289)); must
+   merge before the vendored headers are updated.
 2. Scaffold: vendoring, devcontainer, minimal SIRCONN running in Node.
+   **In progress:** CI runs a native smoke test and Node tests of the
+   WebAssembly build; the headers move to epiworld's release with #289.
 3. Model registry + core for the built-in models; golden tests.
 4. Measles models.
 5. Worker pool and `Epiworld` JS API.

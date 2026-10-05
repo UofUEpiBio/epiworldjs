@@ -1,0 +1,5 @@
+{
+  "name": "epiworldjs",
+  "build": { "dockerfile": "Dockerfile" },
+  "postCreateCommand": "make test"
+}

@@ -1,0 +1,3307 @@
+#ifndef EPIWORLD_MODEL_MEAT_HPP
+#define EPIWORLD_MODEL_MEAT_HPP
+
+#include <vector>
+#include <algorithm>
+#include <numeric>
+#include <stdexcept>
+#include <functional>
+#include <memory>
+#include <random>
+#include <string>
+#include <map>
+#include <unordered_map>
+#include "config.hpp"
+#include "userdata-bones.hpp"
+#include "adjlist-bones.hpp"
+#include "model-bones.hpp"
+#include "virus-bones.hpp"
+#include "agent-bones.hpp"
+#include "tool-bones.hpp"
+#include "rng-utils.hpp"
+#include "modeldiagram-bones.hpp"
+
+/**
+ * @brief Function factory for saving model runs
+ *
+ * @details This function is the default behavior of the `run_multiple`
+ * member of `Model<TSeq>`. By default only the total history (
+ * case counts by unit of time.)
+ *
+ * @tparam TSeq
+ * @param fmt
+ * @param total_hist
+ * @param virus_info
+ * @param virus_hist
+ * @param tool_info
+ * @param tool_hist
+ * @param transmission
+ * @param transition
+ * @return std::function<void(size_t,Model<TSeq>*)>
+ */
+template<typename TSeq>
+inline std::function<void(size_t,Model<TSeq>*)> make_save_run(
+    std::string fmt,
+    bool total_hist,
+    bool virus_info,
+    bool virus_hist,
+    bool tool_info,
+    bool tool_hist,
+    bool transmission,
+    bool transition,
+    bool reproductive,
+    bool generation,
+    bool active_cases,
+    bool outbreak_size,
+    bool hospitalizations
+    )
+{
+
+    // Counting number of %
+    int n_fmt = 0;
+    for (auto & f : fmt)
+        if (f == '%')
+            n_fmt++;
+
+    if (n_fmt != 1)
+        throw std::logic_error("The -fmt- argument must have only one \"%\" symbol.");
+
+    // Listting things to save
+    std::vector< bool > what_to_save = {
+        virus_info,
+        virus_hist,
+        tool_info,
+        tool_hist,
+        total_hist,
+        transmission,
+        transition,
+        reproductive,
+        generation,
+        active_cases,
+        outbreak_size,
+        hospitalizations
+    };
+
+    std::function<void(size_t,Model<TSeq>*)> saver = [fmt,what_to_save](
+        size_t niter, Model<TSeq> * m
+    ) -> void {
+
+        auto set_saver = [fmt,niter](
+            bool condition,
+            std::string suffix
+        ) -> std::string
+        {
+            if (condition)
+            {
+                std::string var = fmt + suffix;
+                char buff[1024u];
+                snprintf(buff, sizeof(buff), var.c_str(), niter);
+                return std::string(buff);
+            }
+            return std::string("");
+        };
+
+        auto virus_info = set_saver(what_to_save[0u], "_virus_info.csv");
+        auto virus_hist = set_saver(what_to_save[1u], "_virus_hist.csv");
+        auto tool_info = set_saver(what_to_save[2u], "_tool_info.csv");
+        auto tool_hist = set_saver(what_to_save[3u], "_tool_hist.csv");
+        auto total_hist = set_saver(what_to_save[4u], "_total_hist.csv");
+        auto transmission = set_saver(what_to_save[5u], "_transmission.csv");
+        auto transition = set_saver(what_to_save[6u], "_transition.csv");
+        auto reproductive = set_saver(what_to_save[7u], "_reproductive.csv");
+        auto generation = set_saver(what_to_save[8u], "_generation.csv");
+        auto active_cases = set_saver(what_to_save[9u], "_active_cases.csv");
+        auto outbreak_size = set_saver(what_to_save[10u], "_outbreak_size.csv");
+        auto hospitalizations = set_saver(what_to_save[11u], "_hospitalizations.csv");
+
+        m->write_data(
+            virus_info,
+            virus_hist,
+            tool_info,
+            tool_hist,
+            total_hist,
+            transmission,
+            transition,
+            reproductive,
+            generation,
+            active_cases,
+            outbreak_size,
+            hospitalizations
+        );
+
+    };
+
+    return saver;
+}
+
+
+template<typename TSeq>
+inline void Model<TSeq>::_add_event(
+    Agent<TSeq> * agent_,
+    VirusPtr<TSeq> virus_,
+    ToolPtr<TSeq> tool_,
+    Entity<TSeq> * entity_,
+    epiworld_fast_int new_state_,
+    epiworld_fast_int queue_,
+    EventAction action_
+) {
+
+    ++nactions;
+
+    #ifdef EPI_DEBUG
+    if (nactions == 0)
+        throw std::logic_error("Events cannot be zero!!");
+    #endif
+
+    if (nactions > events.size())
+    {
+
+        events.emplace_back(
+            Event<TSeq>(
+                agent_, virus_, tool_, entity_, new_state_, queue_, action_
+            ));
+
+    }
+    else
+    {
+
+        Event<TSeq> & A = events.at(nactions - 1u);
+
+        A.agent      = std::move(agent_);
+        A.virus      = std::move(virus_);
+        A.tool       = std::move(tool_);
+        A.entity     = std::move(entity_);
+        A.new_state  = std::move(new_state_);
+        A.queue      = std::move(queue_);
+        A.action     = std::move(action_);
+
+    }
+
+    return;
+
+}
+
+template<typename TSeq>
+inline void Model<TSeq>::state_index_build()
+{
+
+    const size_t ns = static_cast< size_t >(nstates);
+    const size_t n  = population.size();
+
+    // Counting sort of the agents by state
+    state_start.assign(ns + 1u, 0u);
+    for (auto & p : population)
+        state_start[p.state + 1u]++;
+
+    for (size_t s = 0u; s < ns; ++s)
+        state_start[s + 1u] += state_start[s];
+
+    state_order.resize(n);
+    state_member_pos.resize(n);
+    agent_state.resize(n);
+    agent_carrier.assign(n, 0);
+    state_degree.assign(ns, 0u);
+    state_carriers.assign(ns, 0u);
+    state_carrier_degree.assign(ns, 0u);
+
+    std::vector< size_t > next(state_start.begin(), state_start.end() - 1);
+    for (auto & p : population)
+    {
+
+        const size_t id = static_cast< size_t >(p.id);
+        const size_t pos = next[p.state]++;
+        state_order[pos] = id;
+        state_member_pos[id] = pos;
+        agent_state[id] = p.state;
+
+        state_degree[p.state] += p.n_neighbors;
+        if (p.virus != nullptr)
+        {
+            agent_carrier[id] = 1;
+            state_carriers[p.state]++;
+            state_carrier_degree[p.state] += p.n_neighbors;
+        }
+
+    }
+
+    state_index_ready = true;
+
+    // The push scratch space is sized (and cleared) on first use; a step that
+    // was interrupted by an exception must not leave marks for the next run.
+    push_slot.clear();
+    push_visit.clear();
+    push_sources.clear();
+    push_targets.clear();
+
+}
+
+template<typename TSeq>
+inline void Model<TSeq>::state_index_move(
+    size_t id,
+    unsigned int state_old,
+    unsigned int state_new
+)
+{
+
+    // Swaps the entries at positions `a` and `b` of state_order
+    auto swap_pos = [this](size_t a, size_t b) -> void {
+        size_t ida = state_order[a];
+        size_t idb = state_order[b];
+        state_order[a] = idb;
+        state_order[b] = ida;
+        state_member_pos[idb] = a;
+        state_member_pos[ida] = b;
+    };
+
+    size_t pos = state_member_pos[id];
+
+    if (state_old < state_new)
+    {
+
+        // Move to the end of each block and shift that block's end down, so
+        // the agent becomes the first of the next block.
+        for (unsigned int s = state_old; s < state_new; ++s)
+        {
+            size_t last = state_start[s + 1u] - 1u;
+            swap_pos(pos, last);
+            state_start[s + 1u]--;
+            pos = last;
+        }
+
+    }
+    else
+    {
+
+        // Mirror: move to the front of the block and shift its start up, so
+        // the agent becomes the last of the previous block.
+        for (unsigned int s = state_old; s > state_new; --s)
+        {
+            size_t first = state_start[s];
+            swap_pos(pos, first);
+            state_start[s]++;
+            pos = first;
+        }
+
+    }
+
+    agent_state[id] = state_new;
+
+}
+
+template<typename TSeq>
+inline AgentIdsView Model<TSeq>::state_index_members(size_t state) const
+{
+    const size_t from = state_start[state];
+    return AgentIdsView(
+        state_order.data() + from, state_start[state + 1u] - from
+    );
+}
+
+template<typename TSeq>
+inline void Model<TSeq>::state_index_update(
+    Agent<TSeq> * p,
+    unsigned int state_old,
+    bool had_virus
+)
+{
+
+    const unsigned int state_new = p->state;
+    const bool has_virus = (p->virus != nullptr);
+
+    if ((state_new == state_old) && (has_virus == had_virus))
+        return;
+
+    const size_t id  = static_cast< size_t >(p->id);
+    const size_t deg = p->n_neighbors;
+
+    if (state_new != state_old)
+    {
+
+        state_index_move(id, state_old, state_new);
+
+        state_degree[state_old] -= deg;
+        state_degree[state_new] += deg;
+
+    }
+
+    if (has_virus != had_virus)
+        agent_carrier[id] = has_virus ? 1 : 0;
+
+    if (had_virus)
+    {
+        state_carriers[state_old]--;
+        state_carrier_degree[state_old] -= deg;
+    }
+
+    if (has_virus)
+    {
+        state_carriers[state_new]++;
+        state_carrier_degree[state_new] += deg;
+    }
+
+}
+
+template<typename TSeq>
+inline void Model<TSeq>::state_index_degree(
+    Agent<TSeq> & p,
+    size_t n_neighbors_before
+)
+{
+
+    if (!state_index_ready || (p.n_neighbors == n_neighbors_before))
+        return;
+
+    // Unsigned arithmetic wraps, so adding the (possibly "negative")
+    // difference is exact.
+    const size_t delta = p.n_neighbors - n_neighbors_before;
+    state_degree[p.state] += delta;
+    if (p.virus != nullptr)
+        state_carrier_degree[p.state] += delta;
+
+}
+
+template<typename TSeq>
+inline AgentIdsView Model<TSeq>::get_agents_in_state(
+    epiworld_fast_uint state
+) const
+{
+
+    if (!state_index_ready)
+        throw std::logic_error(
+            "The agents-by-state index is built when the model runs. Call "
+            "run() (or run_multiple()) before get_agents_in_state()."
+        );
+
+    if (state >= nstates)
+        throw std::range_error(
+            "The state " + std::to_string(state) + " is out of range. " +
+            "The model currently has " + std::to_string(nstates) + " states."
+        );
+
+    return state_index_members(state);
+
+}
+
+template<typename TSeq>
+inline void Model<TSeq>::events_run()
+{
+    // Making the call
+    size_t nevents_tmp = 0;
+    while (nevents_tmp < nactions)
+    {
+
+        Event<TSeq> & a = events[nevents_tmp++];
+
+        // Everything read from the event after the handler runs is copied
+        // first: a handler can schedule more events (e.g., a virus's
+        // post-recovery hook adding a tool), which may grow `events` and leave
+        // `a` dangling.
+        Agent<TSeq> * p = a.agent;
+        const epiworld_fast_int new_state = a.new_state;
+        const epiworld_fast_int queue_change = a.queue;
+        const unsigned int state_old = p->state;
+        const bool had_virus = (p->virus != nullptr);
+
+        #ifdef EPI_DEBUG
+        if (new_state >= static_cast<epiworld_fast_int>(nstates))
+        {
+            throw std::range_error(
+                "The proposed state " + std::to_string(new_state) + " is out of range. " +
+                "The model currently has " + std::to_string(nstates - 1) + " states.");
+
+        }
+        else if ((new_state != -99) && (new_state < 0))
+        {
+            throw std::range_error(
+                "The proposed state " + std::to_string(new_state) + " is out of range. " +
+                "The state cannot be negative.");
+        }
+        #endif
+
+        // Undoing the change in the transition matrix
+        if (
+            (new_state != -99) &&
+            (p->state_last_changed == today()) &&
+            (static_cast<int>(p->state) != new_state)
+        )
+        {
+            // Undoing state change in the transition matrix
+            // The previous state is already recorded
+            db.update_state(p->state_prev, p->state, true);
+
+        } else if (p->state_last_changed != today())
+            p->state_prev = p->state; // Recording the previous state
+
+        switch (a.action)
+        {
+        case EventAction::AddVirus:
+            _event_add_virus(a);
+            break;
+        case EventAction::AddTool:
+            _event_add_tool(a);
+            break;
+        case EventAction::AddEntity:
+            _event_add_entity(a);
+            break;
+        case EventAction::RemoveVirus:
+            _event_rm_virus(a);
+            break;
+        case EventAction::RemoveTool:
+            _event_rm_tool(a);
+            break;
+        case EventAction::RemoveEntity:
+            _event_rm_entity(a);
+            break;
+        case EventAction::ChangeState:
+            _event_change_state(a);
+            break;
+        default:
+            throw std::logic_error("The requested event action is not supported.");
+        }
+
+        if (new_state != -99)
+            p->state = new_state;
+
+        // Registering that the last change was today
+        p->state_last_changed = today();
+
+        if (state_index_ready)
+            state_index_update(p, state_old, had_virus);
+
+
+        #ifdef EPI_DEBUG
+        if (static_cast<int>(p->state) >= static_cast<int>(nstates))
+                throw std::range_error(
+                    "The new state " + std::to_string(p->state) + " is out of range. " +
+                    "The model currently has " + std::to_string(nstates - 1) + " states.");
+        #endif
+
+        // Updating queue
+        if (use_queuing && queue_change != -99)
+        {
+
+            if (queue_change == Queue<TSeq>::Everyone)
+                queue += p;
+            else if (queue_change == -Queue<TSeq>::Everyone)
+                queue -= p;
+            else if (queue_change == Queue<TSeq>::OnlySelf)
+                queue.shift(static_cast< size_t >(p->get_id()), 1);
+            else if (queue_change == -Queue<TSeq>::OnlySelf)
+                queue.shift(static_cast< size_t >(p->get_id()), -1);
+            else if (queue_change != Queue<TSeq>::NoOne)
+                throw std::logic_error(
+                    "The proposed queue change is not valid. Queue values can be {-2, -1, 0, 1, 2}."
+                    );
+
+        }
+
+    }
+
+    // Go back to square 1
+    nactions = 0u;
+
+    return;
+
+}
+
+/**
+ * @name Default function for combining susceptibility_reduction levels
+ *
+ * @tparam TSeq
+ * @param pt
+ * @return epiworld_double
+ */
+///@{
+template<typename TSeq>
+inline epiworld_double Model<TSeq>::susceptibility_reduction_mixer(
+    Agent<TSeq>* p,
+    VirusPtr<TSeq> & v
+)
+{
+    epiworld_double total = 1.0;
+    for (auto & tool : p->get_tools())
+        total *= (1.0 - tool->get_susceptibility_reduction(v, this));
+
+    return 1.0 - total;
+
+}
+
+template<typename TSeq>
+inline epiworld_double Model<TSeq>::transmission_reduction_mixer(
+    Agent<TSeq>* p,
+    VirusPtr<TSeq> & v
+)
+{
+    epiworld_double total = 1.0;
+    for (auto & tool : p->get_tools())
+        total *= (1.0 - tool->get_transmission_reduction(v, this));
+
+    return (1.0 - total);
+
+}
+
+template<typename TSeq>
+inline epiworld_double Model<TSeq>::recovery_enhancer_mixer(
+    Agent<TSeq>* p,
+    VirusPtr<TSeq> & v
+)
+{
+    epiworld_double total = 1.0;
+    for (auto & tool : p->get_tools())
+        total *= (1.0 - tool->get_recovery_enhancer(v, this));
+
+    return 1.0 - total;
+
+}
+
+template<typename TSeq>
+inline epiworld_double Model<TSeq>::death_reduction_mixer(
+    Agent<TSeq>* p,
+    VirusPtr<TSeq> & v
+) {
+
+    epiworld_double total = 1.0;
+    for (auto & tool : p->get_tools())
+    {
+        total *= (1.0 - tool->get_death_reduction(v, this));
+    }
+
+    return 1.0 - total;
+
+}
+///@}
+
+template<typename TSeq>
+inline std::unique_ptr<Model<TSeq>> Model<TSeq>::clone_ptr()
+{
+    // Everything is copied
+    auto ptr = std::make_unique<Model<TSeq>>(*this);
+
+    #ifdef EPI_DEBUG
+    if (*this != *ptr)
+        throw std::logic_error("Model::clone_ptr The copies of the model don't match.");
+    #endif
+
+    return ptr;
+}
+
+template<typename TSeq>
+inline Model<TSeq>::Model()
+{
+    db.model = this;
+    db.user_data = this;
+    if (use_queuing)
+        queue.model = this;
+}
+
+template<typename TSeq>
+inline Model<TSeq>::Model(const Model<TSeq> & model) :
+    name(model.name),
+    db(model.db),
+    population(model.population),
+    population_backup(model.population_backup),
+    directed(model.directed),
+    viruses(),
+    tools(),
+    entities(model.entities),
+    rewire_fun(model.rewire_fun),
+    rewire_prop(model.rewire_prop),
+    param_values(model.param_values),
+    param_index(model.param_index),
+    param_layout_id(model.param_layout_id),
+    ndays(model.ndays),
+    pb(model.pb),
+    state_fun(model.state_fun),
+    states_labels(model.states_labels),
+    initial_states_fun(model.initial_states_fun),
+    nstates(model.nstates),
+    verbose(model.verbose),
+    current_date(model.current_date),
+    globalevents(),
+    queue(model.queue),
+    use_queuing(model.use_queuing),
+    sim_id(model.sim_id),
+    post_sampling_fun(model.post_sampling_fun),
+    post_sampling_on(model.post_sampling_on),
+    contact_tracing(
+        model.contact_tracing
+            ? std::make_unique<ContactTracing>(*model.contact_tracing)
+            : nullptr
+    ),
+    use_contact_tracing(model.use_contact_tracing),
+    contact_tracing_max_contacts(model.contact_tracing_max_contacts),
+    state_order(model.state_order),
+    state_start(model.state_start),
+    state_member_pos(model.state_member_pos),
+    agent_state(model.agent_state),
+    agent_carrier(model.agent_carrier),
+    state_degree(model.state_degree),
+    state_carriers(model.state_carriers),
+    state_carrier_degree(model.state_carrier_degree),
+    state_index_ready(model.state_index_ready),
+    transmission_mode(model.transmission_mode),
+    transmission_mode_last(model.transmission_mode_last),
+    transmission_kappa(model.transmission_kappa)
+{
+
+    // Pointing to the right place. This needs
+    // to be done afterwards since the state zero is set as a function
+    // of the population.
+    db.model = this;
+    db.user_data.model = this;
+
+    if (use_queuing)
+        queue.model = this;
+
+    agents_data = model.agents_data;
+    agents_data_ncols = model.agents_data_ncols;
+
+    rbinomd = model.rbinomd;
+    rbinomd_n = model.rbinomd_n;
+    rbinomd_fast_lambda = model.rbinomd_fast_lambda;
+    rbinomd_use_poisson = model.rbinomd_use_poisson;
+
+    // Deep-copy model-level objects so clones can run independently in parallel.
+    viruses.reserve(model.viruses.size());
+    for (const auto & v : model.viruses)
+        viruses.emplace_back(std::shared_ptr<Virus<TSeq>>(v->clone_ptr()));
+
+    tools.reserve(model.tools.size());
+    for (const auto & t : model.tools)
+        tools.emplace_back(std::shared_ptr<Tool<TSeq>>(t->clone_ptr()));
+
+    globalevents.reserve(model.globalevents.size());
+    for (const auto & ge : model.globalevents)
+        globalevents.emplace_back(std::shared_ptr<GlobalEvent<TSeq>>(ge->clone_ptr()));
+
+    // Entity-agent relationships now use size_t IDs, so they copy
+    // correctly without any rebinding needed.
+
+}
+
+template<typename TSeq>
+inline Model<TSeq>::Model(Model<TSeq> && model) :
+    name(std::move(model.name)),
+    db(std::move(model.db)),
+    population(std::move(model.population)),
+    population_backup(std::move(model.population_backup)),
+    agents_data(std::move(model.agents_data)),
+    agents_data_ncols(std::move(model.agents_data_ncols)),
+    directed(std::move(model.directed)),
+    // Virus
+    viruses(std::move(model.viruses)),
+    // Tools
+    tools(std::move(model.tools)),
+    // Entities
+    entities(std::move(model.entities)),
+    // Pseudo-RNG
+    engine(std::move(model.engine)),
+    runifd_a(model.runifd_a),
+    runifd_b(model.runifd_b),
+    rnormd(std::move(model.rnormd)),
+    rgammad(std::move(model.rgammad)),
+    rlognormald(std::move(model.rlognormald)),
+    rexpd(std::move(model.rexpd)),
+    rbinomd(std::move(model.rbinomd)),
+    rbinomd_n(model.rbinomd_n),
+    rbinomd_fast_lambda(model.rbinomd_fast_lambda),
+    rbinomd_use_poisson(model.rbinomd_use_poisson),
+    // Rewiring
+    rewire_fun(std::move(model.rewire_fun)),
+    rewire_prop(std::move(model.rewire_prop)),
+    param_values(std::move(model.param_values)),
+    param_index(std::move(model.param_index)),
+    param_layout_id(model.param_layout_id),
+    // Others
+    ndays(model.ndays),
+    pb(std::move(model.pb)),
+    state_fun(std::move(model.state_fun)),
+    states_labels(std::move(model.states_labels)),
+    initial_states_fun(std::move(model.initial_states_fun)),
+    nstates(model.nstates),
+    verbose(model.verbose),
+    current_date(std::move(model.current_date)),
+    globalevents(std::move(model.globalevents)),
+    queue(std::move(model.queue)),
+    use_queuing(model.use_queuing),
+    sim_id(model.sim_id),
+    post_sampling_fun(std::move(model.post_sampling_fun)),
+    post_sampling_on(model.post_sampling_on),
+    contact_tracing(std::move(model.contact_tracing)),
+    use_contact_tracing(model.use_contact_tracing),
+    contact_tracing_max_contacts(model.contact_tracing_max_contacts),
+    state_order(std::move(model.state_order)),
+    state_start(std::move(model.state_start)),
+    state_member_pos(std::move(model.state_member_pos)),
+    agent_state(std::move(model.agent_state)),
+    agent_carrier(std::move(model.agent_carrier)),
+    state_degree(std::move(model.state_degree)),
+    state_carriers(std::move(model.state_carriers)),
+    state_carrier_degree(std::move(model.state_carrier_degree)),
+    state_index_ready(model.state_index_ready),
+    transmission_mode(model.transmission_mode),
+    transmission_mode_last(model.transmission_mode_last),
+    transmission_kappa(model.transmission_kappa)
+{
+
+    db.model = this;
+    db.user_data.model = this;
+
+    if (use_queuing)
+        queue.model = this;
+
+}
+
+template<typename TSeq>
+inline Model<TSeq> & Model<TSeq>::operator=(const Model<TSeq> & m)
+{
+    if (this == &m)
+        return *this;
+
+    name = m.name;
+
+    population        = m.population;
+    population_backup = m.population_backup;
+
+    db = m.db;
+    db.model = this;
+    db.user_data.model = this;
+
+    directed = m.directed;
+
+    viruses.clear();
+    viruses.reserve(m.viruses.size());
+    for (const auto & v : m.viruses)
+        viruses.emplace_back(std::shared_ptr<Virus<TSeq>>(v->clone_ptr()));
+
+    tools.clear();
+    tools.reserve(m.tools.size());
+    for (const auto & t : m.tools)
+        tools.emplace_back(std::shared_ptr<Tool<TSeq>>(t->clone_ptr()));
+
+    entities        = m.entities;
+
+    rewire_fun  = m.rewire_fun;
+    rewire_prop = m.rewire_prop;
+
+    param_values    = m.param_values;
+    param_index     = m.param_index;
+    param_layout_id = m.param_layout_id;
+    ndays      = m.ndays;
+    pb         = m.pb;
+
+    state_fun    = m.state_fun;
+    states_labels = m.states_labels;
+    initial_states_fun = m.initial_states_fun;
+    nstates       = m.nstates;
+
+    verbose     = m.verbose;
+
+    current_date = m.current_date;
+
+    globalevents.clear();
+    globalevents.reserve(m.globalevents.size());
+    for (const auto & ge : m.globalevents)
+        globalevents.emplace_back(std::shared_ptr<GlobalEvent<TSeq>>(ge->clone_ptr()));
+
+    queue = m.queue;
+    use_queuing = m.use_queuing;
+
+    post_sampling_fun = m.post_sampling_fun;
+    post_sampling_on = m.post_sampling_on;
+    post_sampling_scratch.reset(0u);
+
+    contact_tracing = m.contact_tracing
+        ? std::make_unique<ContactTracing>(*m.contact_tracing)
+        : nullptr;
+    use_contact_tracing = m.use_contact_tracing;
+    contact_tracing_max_contacts = m.contact_tracing_max_contacts;
+
+    state_order = m.state_order;
+    state_start = m.state_start;
+    state_member_pos = m.state_member_pos;
+    agent_state = m.agent_state;
+    agent_carrier = m.agent_carrier;
+    state_degree = m.state_degree;
+    state_carriers = m.state_carriers;
+    state_carrier_degree = m.state_carrier_degree;
+    state_index_ready = m.state_index_ready;
+
+    transmission_mode = m.transmission_mode;
+    transmission_mode_last = m.transmission_mode_last;
+    transmission_kappa = m.transmission_kappa;
+
+    agents_data = m.agents_data;
+    agents_data_ncols = m.agents_data_ncols;
+
+    rbinomd = m.rbinomd;
+    rbinomd_n = m.rbinomd_n;
+    rbinomd_fast_lambda = m.rbinomd_fast_lambda;
+    rbinomd_use_poisson = m.rbinomd_use_poisson;
+
+    // Figure out the queuing
+    if (use_queuing)
+        queue.model = this;
+
+    sim_id = m.sim_id;
+    // Entity-agent relationships now use size_t IDs, so they copy
+    // correctly without any rebinding needed.
+
+    return *this;
+
+}
+
+template<typename TSeq>
+inline DataBase<TSeq> & Model<TSeq>::get_db()
+{
+    return db;
+}
+
+template<typename TSeq>
+inline const DataBase<TSeq> & Model<TSeq>::get_db() const
+{
+    return db;
+}
+
+
+template<typename TSeq>
+inline std::vector<Agent<TSeq>> & Model<TSeq>::get_agents()
+{
+    return population;
+}
+
+template<typename TSeq>
+inline Agent<TSeq> & Model<TSeq>::get_agent(size_t i)
+{
+    return population[i];
+}
+
+template<typename TSeq>
+inline std::vector< epiworld_fast_uint > Model<TSeq>::get_agents_states() const
+{
+    std::vector< epiworld_fast_uint > states(population.size());
+    for (size_t i = 0u; i < population.size(); ++i)
+        states[i] = population[i].get_state();
+
+    return states;
+}
+
+template<typename TSeq>
+inline std::vector< Viruses_const<TSeq> > Model<TSeq>::get_agents_viruses() const
+{
+
+    std::vector< Viruses_const<TSeq> > viruses(population.size());
+    for (size_t i = 0u; i < population.size(); ++i)
+        viruses[i] = population[i].get_virus();
+
+    return viruses;
+
+}
+
+// Same as before, but the non const version
+template<typename TSeq>
+inline std::vector< Viruses<TSeq> > Model<TSeq>::get_agents_viruses()
+{
+
+    std::vector< Viruses<TSeq> > viruses(population.size());
+    for (size_t i = 0u; i < population.size(); ++i)
+        viruses[i] = population[i].get_virus();
+
+    return viruses;
+
+}
+
+template<typename TSeq>
+inline std::vector<Entity<TSeq>> & Model<TSeq>::get_entities()
+{
+    return entities;
+}
+
+template<typename TSeq>
+inline Entity<TSeq> & Model<TSeq>::get_entity(size_t i, int * entity_pos)
+{
+
+    for (size_t j = 0u; j < entities.size(); ++j)
+        if (entities[j].get_id() == static_cast<int>(i))
+        {
+
+            if (entity_pos)
+                *entity_pos = j;
+
+            return entities[j];
+
+        }
+
+    throw std::range_error("The entity with id " + std::to_string(i) + " was not found.");
+
+}
+
+template<typename TSeq>
+inline const Entity<TSeq> & Model<TSeq>::get_entity(size_t i, int * entity_pos) const
+{
+    for (size_t j = 0u; j < entities.size(); ++j)
+        if (entities[j].get_id() == static_cast<int>(i))
+        {
+
+            if (entity_pos)
+                *entity_pos = j;
+
+            return entities[j];
+
+        }
+
+    throw std::range_error("The entity with id " + std::to_string(i) + " was not found.");
+
+}
+
+template<typename TSeq>
+inline Model<TSeq> & Model<TSeq>::agents_smallworld(
+    epiworld_fast_uint n,
+    epiworld_fast_uint k,
+    bool d,
+    epiworld_double p
+)
+{
+
+    agents_from_adjlist(
+        rgraph_smallworld(n, k, p, d, *this)
+    );
+
+    return *this;
+}
+
+template<typename TSeq>
+inline void Model<TSeq>::agents_empty_graph(
+    epiworld_fast_uint n
+)
+{
+
+
+    // Resizing the people
+    population.clear();
+    population.resize(n);
+    state_index_ready = false;
+
+    // A new network: undirected until agents_from_adjlist() says otherwise, and
+    // without the backup of the old agents (see set_backup()), which reset()
+    // would restore at the next run -- old ties, stored for the old direction.
+    directed = false;
+    population_backup.clear();
+
+    // Filling the model and ids
+    size_t i = 0u;
+    for (auto & p : population)
+    {
+        p.id = i++;
+    }
+
+
+}
+
+template<typename TSeq>
+inline Model<TSeq> & Model<TSeq>::agents_sbm(
+    const std::vector< size_t > & block_sizes,
+    const std::vector< double > & mixing_matrix,
+    bool row_major
+)
+{
+
+    agents_from_adjlist(
+        rgraph_sbm(block_sizes, mixing_matrix, row_major, *this)
+    );
+
+    return *this;
+}
+
+template<typename TSeq>
+inline Model<TSeq> & Model<TSeq>::agents_bernoulli(
+    epiworld_fast_uint n,
+    epiworld_double p,
+    bool d
+)
+{
+
+    agents_from_adjlist(
+        rgraph_bernoulli(n, p, d, *this)
+    );
+
+    return *this;
+}
+
+template<typename TSeq>
+inline epiworld_double Model<TSeq>::operator()(std::string_view pname) const {
+
+    const auto iter = param_index.find(pname);
+    if (iter == param_index.end())
+        throw std::range_error(
+            "The parameter '" + std::string(pname) + "' is not in the model."
+        );
+
+    return param_values[iter->second];
+
+}
+
+template<typename TSeq>
+inline size_t Model<TSeq>::size() const {
+    return population.size();
+}
+
+template<typename TSeq>
+inline void Model<TSeq>::dist_virus()
+{
+
+    for (auto & v: viruses)
+    {
+
+        v->distribute(this);
+
+        // Apply the events
+        events_run();
+    }
+
+}
+
+template<typename TSeq>
+inline void Model<TSeq>::dist_tools()
+{
+
+    for (auto & tool: tools)
+    {
+
+        tool->distribute(this);
+
+        // Apply the events
+        events_run();
+
+    }
+
+}
+
+template<typename TSeq>
+inline void Model<TSeq>::dist_entities()
+{
+
+    for (auto & entity: entities)
+    {
+
+        entity.distribute(this);
+
+        // Apply the events
+        events_run();
+
+    }
+
+}
+
+template<typename TSeq>
+inline void Model<TSeq>::chrono_start() {
+    time_start = std::chrono::steady_clock::now();
+}
+
+template<typename TSeq>
+inline void Model<TSeq>::chrono_end() {
+    time_end = std::chrono::steady_clock::now();
+    time_elapsed += (time_end - time_start);
+    n_replicates++;
+}
+
+template<typename TSeq>
+inline void Model<TSeq>::set_backup()
+{
+
+    if (population_backup.size() == 0u)
+        population_backup = std::vector< Agent<TSeq> >(population);
+
+}
+
+template<typename TSeq>
+inline void Model<TSeq>::add_virus(
+    Virus<TSeq> & v
+    )
+{
+
+    // Checking the state
+    epiworld_fast_int init_, post_, rm_;
+    v.get_state(&init_, &post_, &rm_);
+
+    if (init_ == -99)
+        throw std::logic_error(
+            "The virus \"" + v.get_name() + "\" has no -init- state."
+            );
+    else if (post_ == -99)
+        throw std::logic_error(
+            "The virus \"" + v.get_name() + "\" has no -post- state."
+            );
+
+    // Recording the variant
+    db.record_virus(v);
+
+    // Adding new virus
+    auto cloned = v.clone_ptr();
+    viruses.push_back(std::shared_ptr<Virus<TSeq>>(std::move(cloned)));
+
+}
+
+template<typename TSeq>
+inline void Model<TSeq>::add_tool(Tool<TSeq> & t)
+{
+
+
+    db.record_tool(t);
+
+    // Adding the tool to the model (and database.)
+    auto cloned = t.clone_ptr();
+    tools.push_back(std::shared_ptr<Tool<TSeq>>(std::move(cloned)));
+
+}
+
+template<typename TSeq>
+inline void Model<TSeq>::add_entity(Entity<TSeq> e)
+{
+
+    e.id = entities.size();
+    entities.push_back(e);
+
+}
+
+template<typename TSeq>
+inline void Model<TSeq>::rm_entity(size_t entity_id)
+{
+
+    int entity_pos = 0;
+    auto & entity = this->get_entity(entity_id, &entity_pos);
+
+    // First, resetting the entity
+    entity.reset();
+
+    // How should
+    if (entity_pos != (static_cast<int>(entities.size()) - 1))
+        std::swap(entities[entity_pos], entities[entities.size() - 1]);
+
+    entities.pop_back();
+}
+
+template<typename TSeq>
+inline void Model<TSeq>::rm_virus(size_t virus_pos)
+{
+
+    if (viruses.size() <= virus_pos)
+        throw std::range_error(
+            std::string("The specified virus (") +
+            std::to_string(virus_pos) +
+            std::string(") is out of range. ") +
+            std::string("There are only ") +
+            std::to_string(viruses.size()) +
+            std::string(" viruses.")
+            );
+
+    // Flipping with the last one
+    std::swap(viruses[virus_pos], viruses[viruses.size() - 1]);
+    viruses.pop_back();
+
+    return;
+
+}
+
+template<typename TSeq>
+inline void Model<TSeq>::rm_tool(size_t tool_pos)
+{
+
+    if (tools.size() <= tool_pos)
+        throw std::range_error(
+            std::string("The specified tool (") +
+            std::to_string(tool_pos) +
+            std::string(") is out of range. ") +
+            std::string("There are only ") +
+            std::to_string(tools.size()) +
+            std::string(" tools.")
+            );
+
+    // Flipping with the last one
+    std::swap(tools[tool_pos], tools[tools.size() - 1]);
+
+    /* There's an error on windows:
+    https://github.com/UofUEpiBio/epiworldR/actions/runs/4801482395/jobs/8543744180#step:6:84
+
+    More clear here:
+    https://stackoverflow.com/questions/58660207/why-doesnt-stdswap-work-on-vectorbool-elements-under-clang-win
+    */
+
+    tools.pop_back();
+
+    return;
+
+}
+
+template<typename TSeq>
+inline void Model<TSeq>::load_agents_entities_ties(
+    std::string fn,
+    int skip
+    )
+{
+
+
+    int i,j;
+    std::ifstream filei(fn);
+
+    if (!filei)
+        throw std::logic_error("The file " + fn + " was not found.");
+
+    int linenum = 0;
+    std::vector< std::vector< epiworld_fast_uint > > target_(entities.size());
+
+    target_.reserve(1e5);
+
+    while (!filei.eof())
+    {
+
+        if (linenum++ < skip)
+            continue;
+
+        filei >> i >> j;
+
+        // Looking for exceptions
+        if (filei.bad())
+            throw std::logic_error(
+                "I/O error while reading the file " +
+                fn
+            );
+
+        if (filei.fail())
+            break;
+
+        if (i >= static_cast<int>(this->size()))
+            throw std::range_error(
+                "The agent["+std::to_string(linenum)+"] = " + std::to_string(i) +
+                " is above the max id " + std::to_string(this->size() - 1)
+                );
+
+        if (j >= static_cast<int>(this->entities.size()))
+            throw std::range_error(
+                "The entity["+std::to_string(linenum)+"] = " + std::to_string(j) +
+                " is above the max id " + std::to_string(this->entities.size() - 1)
+                );
+
+        target_[j].push_back(i);
+
+        population[i].add_entity(*this, entities[j]);
+
+    }
+
+    return;
+
+}
+
+template<typename TSeq>
+inline void Model<TSeq>::load_agents_entities_ties(
+    const std::vector< int > & agents_ids,
+    const std::vector< int > & entities_ids
+) {
+
+
+    // Checking the size
+    if (agents_ids.size() != entities_ids.size())
+        throw std::length_error(
+            std::string("The size of agents_ids (") +
+            std::to_string(agents_ids.size()) +
+            std::string(") and entities_ids (") +
+            std::to_string(entities_ids.size()) +
+            std::string(") must be the same.")
+            );
+
+    return this->load_agents_entities_ties(
+        agents_ids.data(),
+        entities_ids.data(),
+        agents_ids.size()
+    );
+
+}
+
+template<typename TSeq>
+inline void Model<TSeq>::load_agents_entities_ties(
+    const int * agents_ids,
+    const int * entities_ids,
+    size_t n
+) {
+
+
+    auto get_agent = [agents_ids](int i) -> int {
+        return *(agents_ids + i);
+        };
+
+    auto get_entity = [entities_ids](int i) -> int {
+        return *(entities_ids + i);
+        };
+
+    for (size_t i = 0u; i < n; ++i)
+    {
+
+        if (get_agent(i) < 0)
+            throw std::length_error(
+                std::string("agents_ids[") +
+                std::to_string(i) +
+                std::string("] = ") +
+                std::to_string(get_agent(i)) +
+                std::string(" is negative.")
+                );
+
+        if (get_entity(i) < 0)
+            throw std::length_error(
+                std::string("entities_ids[") +
+                std::to_string(i) +
+                std::string("] = ") +
+                std::to_string(get_entity(i)) +
+                std::string(" is negative.")
+                );
+
+        int pop_size = static_cast<int>(this->population.size());
+        if (get_agent(i) >= pop_size)
+            throw std::length_error(
+                std::string("agents_ids[") +
+                std::to_string(i) +
+                std::string("] = ") +
+                std::to_string(get_agent(i)) +
+                std::string(" is out of range (population size: ") +
+                std::to_string(pop_size) +
+                std::string(").")
+                );
+
+        int ent_size = static_cast<int>(this->entities.size());
+        if (get_entity(i) >= ent_size)
+            throw std::length_error(
+                std::string("entities_ids[") +
+                std::to_string(i) +
+                std::string("] = ") +
+                std::to_string(get_entity(i)) +
+                std::string(" is out of range (entities size: ") +
+                std::to_string(ent_size) +
+                std::string(").")
+                );
+
+        // Adding the entity to the agent
+        this->population[get_agent(i)].add_entity(
+            *this,
+            this->entities[get_entity(i)]
+        );
+
+    }
+
+    return;
+
+
+}
+
+template<typename TSeq>
+inline void Model<TSeq>::agents_from_adjlist(
+    std::string fn,
+    int size,
+    int skip,
+    bool directed
+    ) {
+
+
+    AdjList al;
+    al.read_edgelist(fn, size, skip, directed);
+    this->agents_from_adjlist(al);
+
+}
+
+template<typename TSeq>
+inline void Model<TSeq>::agents_from_edgelist(
+    const std::vector< int > & source,
+    const std::vector< int > & target,
+    int size,
+    bool directed
+) {
+
+    // Validate everything before touching the model, so a bad edge list
+    // leaves the current network as it was.
+    if (size < 0)
+        throw std::length_error(
+            "The size of the network cannot be negative (" +
+            std::to_string(size) + ")."
+            );
+
+    if (source.size() != target.size())
+        throw std::length_error(
+            "source and target must have the same length (" +
+            std::to_string(source.size()) + " vs " +
+            std::to_string(target.size()) + ")."
+            );
+
+    int max_id = size - 1;
+    for (size_t m = 0u; m < source.size(); ++m)
+    {
+
+        if ((source[m] < 0) || (source[m] > max_id))
+            throw std::range_error(
+                "The source["+std::to_string(m)+"] = " +
+                std::to_string(source[m]) +
+                " is above the max_id " + std::to_string(max_id)
+                );
+
+        if ((target[m] < 0) || (target[m] > max_id))
+            throw std::range_error(
+                "The target["+std::to_string(m)+"] = " +
+                std::to_string(target[m]) +
+                " is above the max_id " + std::to_string(max_id)
+                );
+
+    }
+
+    size_t n = static_cast< size_t >(size);
+    agents_empty_graph(n);
+    this->directed = (n > 0u) && directed;
+
+    // Counting sort of the edge ends by agent: row i of `ids` (from start[i]
+    // to start[i + 1]) holds i's neighbors. An undirected tie lands in both
+    // rows, a directed one in its source's only (see is_directed()).
+    std::vector< size_t > start(n + 1u, 0u);
+    for (size_t m = 0u; m < source.size(); ++m)
+    {
+        start[static_cast< size_t >(source[m]) + 1u]++;
+        if (!this->directed)
+            start[static_cast< size_t >(target[m]) + 1u]++;
+    }
+
+    std::partial_sum(start.begin(), start.end(), start.begin());
+
+    std::vector< size_t > ids(start[n]);
+    std::vector< size_t > next(start.begin(), start.end() - 1);
+    for (size_t m = 0u; m < source.size(); ++m)
+    {
+        size_t i = static_cast< size_t >(source[m]);
+        size_t j = static_cast< size_t >(target[m]);
+
+        ids[next[i]++] = j;
+        if (!this->directed)
+            ids[next[j]++] = i;
+    }
+
+    agents_set_neighbors(start, ids);
+
+}
+
+template<typename TSeq>
+inline void Model<TSeq>::agents_from_adjlist(const AdjList & al) {
+
+    // Resizing the people
+    size_t n = al.vcount();
+    agents_empty_graph(n);
+
+    // AdjList::is_directed() throws on a list with no vertices.
+    directed = (n > 0u) && al.is_directed();
+
+    const auto & tmpdat = al.get_dat();
+
+    // Same rows as agents_from_edgelist(). An undirected tie i - j is written
+    // to both rows, so the result does not depend on the list being symmetric.
+    std::vector< size_t > start(n + 1u, 0u);
+    for (size_t i = 0u; i < n; ++i)
+    {
+        start[i + 1u] += tmpdat[i].size();
+        if (!directed)
+            for (const auto & link : tmpdat[i])
+                start[static_cast< size_t >(link.first) + 1u]++;
+    }
+
+    std::partial_sum(start.begin(), start.end(), start.begin());
+
+    std::vector< size_t > ids(start[n]);
+    std::vector< size_t > next(start.begin(), start.end() - 1);
+    for (size_t i = 0u; i < n; ++i)
+        for (const auto & link : tmpdat[i])
+        {
+            size_t j = static_cast< size_t >(link.first);
+            ids[next[i]++] = j;
+            if (!directed)
+                ids[next[j]++] = i;
+        }
+
+    agents_set_neighbors(start, ids);
+
+}
+
+template<typename TSeq>
+inline void Model<TSeq>::agents_set_neighbors(
+    const std::vector< size_t > & start,
+    std::vector< size_t > & ids
+) {
+
+    // Each row becomes its agent's neighbors: sorted, without repeats, and
+    // allocated once at its final size. Ascending order is what adding the
+    // ties one by one used to produce, and roulette() depends on that order.
+    for (size_t i = 0u; i < population.size(); ++i)
+    {
+
+        auto first = ids.begin() + static_cast< std::ptrdiff_t >(start[i]);
+        auto last  = ids.begin() + static_cast< std::ptrdiff_t >(start[i + 1u]);
+
+        if (first == last)
+            continue;
+
+        std::sort(first, last);
+        last = std::unique(first, last);
+
+        auto & p = population[i];
+        p.neighbors   = new std::vector< size_t >(first, last);
+        p.n_neighbors = p.neighbors->size();
+
+        if (p.n_neighbors > EPI_NEIGHBOR_INDEX_THRESHOLD)
+            p.build_neighbor_index();
+
+    }
+
+}
+
+template<typename TSeq>
+inline void Model<TSeq>::check_edge_endpoints(size_t i, size_t j) const
+{
+
+    if ((i >= population.size()) || (j >= population.size()))
+        throw std::range_error(
+            "Agent ids must be below " + std::to_string(population.size()) +
+            "; got " + std::to_string(i) + " and " + std::to_string(j) + "."
+        );
+
+    if (i == j)
+        throw std::logic_error(
+            "An agent cannot be tied to itself (agent " + std::to_string(i) + ")."
+        );
+
+    if (directed)
+        throw std::logic_error(
+            "add_edge/rm_edge change both ends of a tie, which is not meaningful "
+            "in a directed model."
+        );
+
+}
+
+template<typename TSeq>
+inline bool Model<TSeq>::add_edge(size_t i, size_t j)
+{
+
+    check_edge_endpoints(i, j);
+
+    size_t deg_i = population[i].n_neighbors;
+    size_t deg_j = population[j].n_neighbors;
+
+    if (!population[i].add_neighbor(population[j], true, true))
+        return false;
+
+    state_index_degree(population[i], deg_i);
+    state_index_degree(population[j], deg_j);
+
+    if (use_queuing)
+        queue.notify_edge_added(&population[i], &population[j]);
+
+    return true;
+
+}
+
+template<typename TSeq>
+inline bool Model<TSeq>::rm_edge(size_t i, size_t j)
+{
+
+    check_edge_endpoints(i, j);
+
+    // Nothing to unwind if the two were never tied -- shifting the counts for a
+    // tie that is not there is exactly the drift these calls exist to prevent.
+    if (!population[i].has_neighbor(j) && !population[j].has_neighbor(i))
+        return false;
+
+    if (use_queuing)
+        queue.notify_edge_removed(&population[i], &population[j]);
+
+    size_t deg_i = population[i].n_neighbors;
+    size_t deg_j = population[j].n_neighbors;
+
+    bool removed = population[i].rm_neighbor(population[j]);
+
+    state_index_degree(population[i], deg_i);
+    state_index_degree(population[j], deg_j);
+
+    return removed;
+
+}
+
+template<typename TSeq>
+inline bool Model<TSeq>::has_edge(size_t i, size_t j) const
+{
+
+    if ((i >= population.size()) || (j >= population.size()))
+        throw std::range_error(
+            "Agent ids must be below " + std::to_string(population.size()) +
+            "; got " + std::to_string(i) + " and " + std::to_string(j) + "."
+        );
+
+    return population[i].has_neighbor(j);
+
+}
+
+template<typename TSeq>
+inline bool Model<TSeq>::is_directed() const
+{
+    if (population.size() == 0u)
+        throw std::logic_error("The population hasn't been initialized.");
+
+    return directed;
+}
+
+template<typename TSeq>
+inline int Model<TSeq>::today() const {
+
+    if (ndays == 0)
+      return 0;
+
+    return this->current_date;
+}
+
+template<typename TSeq>
+inline void Model<TSeq>::next() {
+
+    #ifdef EPI_DEBUG
+    // Checking all the agents have proper states
+    for (auto & p : population)
+    {
+        if ((p.state >= nstates) || (p.state < 0))
+        {
+            throw std::range_error(
+                "The agent " + std::to_string(p.id) +
+                " has state " + std::to_string(p.state) +
+                " which is above the maximum state of " +
+                std::to_string(nstates - 1) + "."
+            );
+        }
+
+        if ((p.state_prev >= nstates) || (p.state_prev < 0))
+        {
+            throw std::range_error(
+                "The agent " + std::to_string(p.id) +
+                " has previous state " + std::to_string(p.state_prev) +
+                " which is above the maximum state of " +
+                std::to_string(nstates - 1) + "."
+            );
+        }
+
+    }
+
+    #endif
+
+    db.record();
+    ++this->current_date;
+
+    // Advancing the progress bar
+    if ((this->current_date >= 1) && verbose)
+        pb.next();
+
+    return ;
+}
+
+template<typename TSeq>
+inline Model<TSeq> & Model<TSeq>::run(
+    epiworld_fast_uint ndays,
+    int seed
+)
+{
+
+    // Set this model as the current model in scope for this thread.
+    // This enables Model::the() calls from agents, entities, etc.
+
+    if (size() == 0u)
+        throw std::logic_error("There are no agents in this model!");
+
+    if (nstates == 0u)
+        throw std::logic_error(
+            std::string("No states registered in this model. ") +
+            std::string("At least one state should be included. See the ") +
+            std::string("function -Model::add_state()-")
+            );
+
+    // Setting up the number of steps
+    this->ndays = ndays;
+
+    if (seed >= 0)
+        engine->seed(seed);
+
+    last_seed = seed;
+
+    // Checking whether the proposed state in/out/removed
+    // are valid
+    epiworld_fast_int _init, _end, _removed;
+    int nstate_int = static_cast<int>(nstates);
+
+    // Function to validate the states of viruses
+    // and tools.
+    auto check_init_states = [nstate_int](int x) -> void {
+
+        if (((x != -99) && (x < 0)) || (x >= nstate_int))
+            throw std::range_error("States must be between 0 and " +
+                std::to_string(nstate_int - 1));
+    };
+
+    for (auto & v : viruses)
+    {
+        v->get_state(&_init, &_end, &_removed);
+
+        check_init_states(_init);
+        check_init_states(_end);
+        check_init_states(_removed);
+
+    }
+
+    for (auto & t : tools)
+    {
+        t->get_state(&_init, &_end);
+
+        check_init_states(_init);
+        check_init_states(_end);
+
+    }
+
+    // From here on get_ndays() is the run's horizon (see is_running()). The
+    // guard clears the flag however the run ends, exceptions included.
+    struct RunningGuard {
+        bool & flag;
+        explicit RunningGuard(bool & f) : flag(f) { flag = true; }
+        ~RunningGuard() { flag = false; }
+    } running_guard(running);
+
+    // Starting first infection and tools
+    reset();
+
+    // Record the baseline (day 0) and advance to day 1
+    next();
+
+    // Initializing the simulation
+    chrono_start();
+
+    // Verifying if the user wants to see the progress bar
+    if (get_verbose())
+    {
+        printf_epiworld("Running the model...\n");
+    }
+
+    for (epiworld_fast_uint niter = 0; niter < get_ndays(); ++niter)
+    {
+
+        #ifdef EPI_DEBUG
+        db.n_transmissions_potential = 0;
+        db.n_transmissions_today = 0;
+        #endif
+
+        // We can execute these components in whatever order the
+        // user needs.
+        this->update_state();
+
+        // We start with the Global events
+        this->run_globalevents();
+
+        // In this case we are applying degree sequence rewiring
+        // to change the network just a bit.
+        this->rewire();
+
+        // This locks all the changes
+        this->next();
+
+        // Mutation must happen at the very end of all
+        this->mutate_virus();
+
+    }
+
+    // The last reaches the end...
+    this->current_date--;
+
+    chrono_end();
+
+    sim_id++;
+
+    return *this;
+
+}
+
+template<typename TSeq>
+inline Model<TSeq> & Model<TSeq>::run_multiple(
+    epiworld_fast_uint ndays,
+    epiworld_fast_uint nexperiments,
+    int seed_,
+    std::function<void(size_t,Model<TSeq>*)> fun,
+    bool reset,
+    bool verbose,
+    #ifdef _OPENMP
+    int nthreads
+    #else
+    int
+    #endif
+)
+{
+
+    if (seed_ >= 0)
+        this->seed(seed_);
+
+    if (nexperiments == 0u)
+        throw std::logic_error("The number of experiments must be above 0.");
+
+    // Seeds will be reproducible by default
+    std::vector< int > seeds_n(nexperiments);
+    for (auto & s : seeds_n)
+    {
+        s = static_cast<int>(
+            std::floor(
+                runif() * static_cast<double>(std::numeric_limits<int>::max())
+                )
+        );
+    }
+    // #endif
+
+    if (verbose)
+    {
+        EPI_DEBUG_NOTIFY_ACTIVE()
+    }
+
+    bool old_verb = this->verbose;
+    verbose_off();
+
+    // Setting up backup
+    if (reset)
+        set_backup();
+
+    #ifdef _OPENMP
+
+    // Not more than the number of experiments
+    nthreads =
+        static_cast<size_t>(nthreads) > nexperiments ? nexperiments : nthreads;
+    
+    omp_set_num_threads(nthreads);
+
+    // Generating copies of the model (done serially to avoid races on original)
+    std::vector< std::unique_ptr< Model<TSeq> > > these;
+
+    for (size_t i = 1u; i < static_cast<size_t>(nthreads); ++i)
+    {
+        these.emplace_back(clone_ptr());
+    }
+
+
+    // Figuring out how many replicates - distribute remainder evenly
+    std::vector< size_t > nreplicates(nthreads, 0);
+    std::vector< size_t > nreplicates_csum(nthreads, 0);
+
+    size_t base_replicates = nexperiments / nthreads;
+    size_t remainder = nexperiments % nthreads;
+
+    size_t sums = 0u;
+    for (int i = 0; i < nthreads; ++i)
+    {
+        // Distribute remainder to first 'remainder' threads
+        nreplicates[i] = base_replicates + (static_cast<size_t>(i) < remainder ? 1 : 0);
+
+        // This takes the cumsum
+        nreplicates_csum[i] = sums;
+        sums += nreplicates[i];
+    }
+
+    Progress pb_multiple(
+        nreplicates[0u],
+        EPIWORLD_PROGRESS_BAR_WIDTH
+        );
+
+    if (verbose)
+    {
+
+        printf_epiworld(
+            "Starting multiple runs (%i) using %i thread(s)\n",
+            static_cast<int>(nexperiments),
+            static_cast<int>(nthreads)
+        );
+
+        pb_multiple.start();
+
+    }
+
+    #ifdef EPI_DEBUG
+    // Checking the initial state of all the models. Throw an
+    // exception if they are not the same.
+    for (size_t i = 1; i < static_cast<size_t>(std::max(nthreads - 1, 0)); ++i)
+    {
+
+        if (db != these[i]->db)
+        {
+            throw std::runtime_error(
+                "The initial state of the models is not the same"
+            );
+        }
+    }
+    #endif
+
+    #pragma omp parallel shared(these) \
+        firstprivate(nexperiments, nthreads, fun, reset, verbose, pb_multiple, \
+        ndays, nreplicates, nreplicates_csum, seeds_n) default(none)
+    {
+
+        auto iam = static_cast<size_t>(omp_get_thread_num());
+        Model<TSeq> * model_ptr = iam == 0 ? this : &(*these[iam - 1u]);
+        size_t my_replicates = nreplicates[iam];
+        size_t my_replicates_csum = nreplicates_csum[iam];
+
+        for (size_t n = 0u; n < my_replicates; ++n)
+        {
+            size_t run_id = my_replicates_csum + n;
+            if (iam == 0)
+            {
+
+                // Checking if the user interrupted the simulation
+                EPI_CHECK_USER_INTERRUPT(n);
+
+                // Setting the simulation id
+                model_ptr->set_sim_id(run_id);
+
+                // Initializing the seed
+                model_ptr->run(ndays, seeds_n[run_id]);
+
+                // Only the first one prints
+                if (verbose)
+                    pb_multiple.next();
+
+            } else {
+
+                // Setting the simulation id
+                model_ptr->set_sim_id(run_id);
+
+                // Initializing the seed
+                model_ptr->run(ndays, seeds_n[run_id]);
+
+            }
+
+            if (fun)
+            {
+                // User callbacks often write into shared result containers.
+                // Serialize callback execution to avoid callback-induced races.
+                #pragma omp critical(epiworld_run_multiple_fun)
+                {
+                    fun(run_id, model_ptr);
+                }
+            }
+
+        }
+
+    }
+
+    // Adjusting the number of replicates
+    n_replicates += (nexperiments - nreplicates[0u]);
+
+    #else
+
+    Progress pb_multiple(
+        nexperiments,
+        EPIWORLD_PROGRESS_BAR_WIDTH
+        )
+        ;
+    if (verbose)
+    {
+
+        printf_epiworld(
+            "Starting multiple runs (%i)\n",
+            static_cast<int>(nexperiments)
+        );
+
+        pb_multiple.start();
+
+    }
+
+    for (size_t n = 0u; n < nexperiments; ++n)
+    {
+
+        // Checking if the user interrupted the simulation
+        EPI_CHECK_USER_INTERRUPT(n);
+
+        set_sim_id(n);
+        run(ndays, seeds_n[n]);
+
+        if (fun)
+            fun(n, this);
+
+        if (verbose)
+            pb_multiple.next();
+
+    }
+    #endif
+
+    if (old_verb)
+        verbose_on();
+
+    return *this;
+
+}
+
+template<typename TSeq>
+inline void Model<TSeq>::update_state() {
+
+    // Susceptible states using the default sampler can be updated by pushing
+    // infection odds from the carriers (see model-meat-transmission.hpp) --
+    // same distribution, and cheaper while few agents carry a virus. Directed
+    // networks always pull: a tie there is kept by its source only (see
+    // is_directed()), so it is not visible from both ends.
+    // A post-sampling callback needs the contacts the pull samplers report, so
+    // the models pull while one is installed.
+    if (post_sampling_on)
+        post_sampling_scratch.clear();
+
+    const bool push =
+        !post_sampling_on && transmission_prepare() && !directed &&
+        transmission_choose_push();
+
+    transmission_mode_last = push ?
+        TransmissionMode::push : TransmissionMode::pull;
+
+    if (push)
+    {
+
+        // Susceptibles were handled by the push; only the agents in the other
+        // states with an update function are left (see
+        // transmission_update_others()).
+        transmission_push();
+        transmission_update_others();
+
+    }
+    else if (use_queuing && !directed)
+    {
+
+        // Only queued agents, in ascending id order (the order fixes the
+        // random number stream).
+        //
+        // Directed networks visit everyone instead. Registering an agent
+        // queues the agents on its own list, which in a directed network are
+        // the ones it is exposed to. The ones that can catch something from it
+        // are the ones that list *it*, and the queue never sees those.
+        queue.for_each_nonzero([this](size_t i) -> void {
+
+            if (queue[i] <= 0)
+                return;
+
+            auto & p = population[i];
+            if (state_fun[p.state])
+                state_fun[p.state](&p, this);
+
+        });
+
+    }
+    else
+    {
+
+        for (auto & p: population)
+            if (state_fun[p.state])
+                state_fun[p.state](&p, this);
+
+    }
+
+    if (post_sampling_on)
+        post_sampling_dispatch();
+
+    events_run();
+
+}
+
+template<typename TSeq>
+inline void Model<TSeq>::mutate_virus() {
+
+    // Checking if any virus has mutation
+    size_t nmutates = 0u;
+    for (const auto & v: viruses)
+        if (v->mutation)
+            nmutates++;
+
+    if (nmutates == 0u)
+        return;
+
+    // Directed networks do not use the queue (see update_state()), and must not
+    // start depending on it here: a carrier registered without `Everyone`, or
+    // a count left stale by rewiring, would then mutate only with queuing off.
+    if (use_queuing && !directed)
+    {
+
+        queue.for_each_nonzero([this](size_t i) -> void {
+
+            auto & p = population[i];
+            if (p.virus != nullptr)
+                p.virus->mutate(this);
+
+        });
+
+    }
+    else
+    {
+
+        for (auto & p: population)
+        {
+
+            if (p.virus != nullptr)
+                p.virus->mutate(this);
+
+        }
+
+    }
+
+
+}
+
+template<typename TSeq>
+inline size_t Model<TSeq>::get_n_viruses() const {
+    return db.size();
+}
+
+template<typename TSeq>
+inline size_t Model<TSeq>::get_n_tools() const {
+    return tools.size();
+}
+
+template<typename TSeq>
+inline epiworld_fast_uint Model<TSeq>::get_ndays() const {
+    return ndays;
+}
+
+template<typename TSeq>
+inline bool Model<TSeq>::is_running() const {
+    return running;
+}
+
+template<typename TSeq>
+inline epiworld_fast_uint Model<TSeq>::get_n_replicates() const
+{
+    return n_replicates;
+}
+
+template<typename TSeq>
+inline size_t Model<TSeq>::get_sim_id() const
+{
+    return sim_id;
+}
+
+template<typename TSeq>
+inline void Model<TSeq>::set_sim_id(size_t id)
+{
+    sim_id = id;
+}
+
+template<typename TSeq>
+inline size_t Model<TSeq>::get_n_entities() const {
+    return entities.size();
+}
+
+template<typename TSeq>
+inline void Model<TSeq>::set_ndays(epiworld_fast_uint ndays) {
+    this->ndays = ndays;
+}
+
+template<typename TSeq>
+inline bool Model<TSeq>::get_verbose() const {
+    return verbose;
+}
+
+template<typename TSeq>
+inline Model<TSeq> & Model<TSeq>::verbose_on() {
+    verbose = true;
+    return *this;
+}
+
+template<typename TSeq>
+inline Model<TSeq> & Model<TSeq>::verbose_off() {
+    verbose = false;
+    return *this;
+}
+
+template<typename TSeq>
+inline void Model<TSeq>::set_rewire_fun(
+    std::function<void(std::vector<Agent<TSeq>>*,Model<TSeq>*,epiworld_double)> fun
+    ) {
+    rewire_fun = fun;
+}
+
+template<typename TSeq>
+inline void Model<TSeq>::set_rewire_prop(epiworld_double prop)
+{
+
+    if (prop < 0.0)
+        throw std::range_error("Proportions cannot be negative.");
+
+    if (prop > 1.0)
+        throw std::range_error("Proportions cannot be above 1.0.");
+
+    rewire_prop = prop;
+}
+
+template<typename TSeq>
+inline epiworld_double Model<TSeq>::get_rewire_prop() const {
+    return rewire_prop;
+}
+
+template<typename TSeq>
+inline bool Model<TSeq>::has_rewire_fun() const {
+    return static_cast< bool >(rewire_fun);
+}
+
+template<typename TSeq>
+inline void Model<TSeq>::rewire() {
+
+    if (rewire_fun)
+        rewire_fun(&population, this, rewire_prop);
+}
+
+
+template<typename TSeq>
+inline void Model<TSeq>::write_data(
+    std::string fn_virus_info,
+    std::string fn_virus_hist,
+    std::string fn_tool_info,
+    std::string fn_tool_hist,
+    std::string fn_total_hist,
+    std::string fn_transmission,
+    std::string fn_transition,
+    std::string fn_reproductive_number,
+    std::string fn_generation_time,
+    std::string fn_active_cases,
+    std::string fn_outbreak_size,
+    std::string fn_hospitalizations
+    ) const
+{
+
+    db.write_data(
+        fn_virus_info, fn_virus_hist,
+        fn_tool_info, fn_tool_hist,
+        fn_total_hist, fn_transmission, fn_transition,
+        fn_reproductive_number, fn_generation_time,
+        fn_active_cases, fn_outbreak_size,
+        fn_hospitalizations
+        );
+
+}
+
+template<typename TSeq>
+inline void Model<TSeq>::write_edgelist(
+    std::string fn
+    ) const
+{
+
+    // Figuring out the writing sequence
+    std::vector< const Agent<TSeq> * > wseq(size());
+    for (const auto & p: population)
+        wseq[p.id] = &p;
+
+    std::ofstream efile(fn, std::ios_base::out);
+    efile << "source target\n";
+    if (this->is_directed())
+    {
+
+        for (const auto & p : wseq)
+        {
+
+            if (p->neighbors == nullptr)
+                continue;
+
+            for (auto & n : *p->neighbors)
+                efile << p->id << " " << n << "\n";
+        }
+
+    } else {
+
+        for (const auto & p : wseq)
+        {
+
+            if (p->neighbors == nullptr)
+                continue;
+
+            for (auto & n : *p->neighbors)
+                if (static_cast<int>(p->id) <= static_cast<int>(n))
+                    efile << p->id << " " << n << "\n";
+        }
+
+    }
+
+}
+
+template<typename TSeq>
+inline void Model<TSeq>::write_edgelist(
+std::vector< int > & source,
+std::vector< int > & target
+) const {
+
+    // Figuring out the writing sequence
+    std::vector< const Agent<TSeq> * > wseq(size());
+    for (const auto & p: population)
+        wseq[p.id] = &p;
+
+    if (this->is_directed())
+    {
+
+        for (const auto & p : wseq)
+        {
+            if (p->neighbors == nullptr)
+                continue;
+
+            for (auto & n : *p->neighbors)
+            {
+                source.push_back(static_cast<int>(p->id));
+                target.push_back(static_cast<int>(n));
+            }
+        }
+
+    } else {
+
+        for (const auto & p : wseq)
+        {
+
+            if (p->neighbors == nullptr)
+                continue;
+
+            for (auto & n : *p->neighbors) {
+                if (static_cast<int>(p->id) <= static_cast<int>(n)) {
+                    source.push_back(static_cast<int>(p->id));
+                    target.push_back(static_cast<int>(n));
+                }
+            }
+        }
+
+    }
+
+
+}
+
+template<typename TSeq>
+inline std::map<std::string, epiworld_double> Model<TSeq>::params() const
+{
+    std::map<std::string, epiworld_double> res;
+    for (const auto & p : param_index)
+        res.emplace(p.first, param_values[p.second]);
+    return res;
+}
+
+template<typename TSeq>
+inline void Model<TSeq>::reset() {
+
+
+    // Restablishing people
+    pb = Progress(ndays, 80);
+
+    if (population_backup.size())
+    {
+        population = population_backup;
+
+        #ifdef EPI_DEBUG
+        for (size_t i = 0; i < population.size(); ++i)
+        {
+
+            if (population[i] != (population_backup)[i])
+                throw std::logic_error("Model::reset population doesn't match.");
+
+        }
+        #endif
+
+    }
+
+    for (auto & p : population)
+        p.reset();
+
+    // Everyone is now in the baseline state with no virus; from here on
+    // events_run() keeps the index current.
+    state_index_build();
+
+    #ifdef EPI_DEBUG
+    for (auto & a: population)
+    {
+        if (a.get_state() != 0u)
+            throw std::logic_error("Model::reset population doesn't match."
+                "Some agents are not in the baseline state.");
+    }
+    #endif
+
+    for (auto & e: entities)
+        e.reset();
+
+    current_date = 0;
+
+    db.reset();
+
+    // This also clears the queue
+    if (use_queuing)
+        queue.reset();
+
+    // The batch of sampled contacts
+    if (post_sampling_on)
+    {
+        post_sampling_scratch.reset(0u);
+        post_sampling_prepare_scratch();
+    }
+
+    // Reset contact tracing if active
+    if (use_contact_tracing)
+        contact_tracing = std::make_unique<ContactTracing>(
+            population.size(), contact_tracing_max_contacts
+        );
+
+    // Re distributing tools and virus
+    dist_entities();
+    dist_virus();
+    dist_tools();
+
+    // Distributing initial state, if specified
+    initial_states_fun(this);
+
+    // Global events set themselves up for the run. This happens last, with the
+    // RNG seeded and the population in its initial state, so that an event that
+    // needs to act on the model it is running in (e.g. one that hands a tool to
+    // every agent) is in force from day 1 -- global events themselves only run
+    // *after* each day's transitions.
+    for (auto & event : globalevents)
+        event->reset(this);
+
+    events_run();
+
+    // Recording day 0 and advancing to day 1 is handled by Model::run().
+    // Keeping reset() side-effect free from virtual next() prevents
+    // derived-model update code from running before derived reset state
+    // is fully initialized.
+
+
+}
+
+// Too big to keep here
+#include "model-meat-print.hpp"
+
+template<typename TSeq>
+inline epiworld_fast_int Model<TSeq>::state_of(std::string_view name) {
+    for (std::size_t i = 0; i < states_labels.size(); ++i) {
+        if (states_labels[i] == name) {
+            return static_cast<epiworld_fast_int>(i);
+        }
+    }
+
+    throw std::logic_error("The state " + std::string(name) + " was not found.");
+}
+
+template<typename TSeq>
+inline epiworld_fast_int Model<TSeq>::add_state(
+    std::string lab,
+    UpdateFun<TSeq> fun
+)
+{
+
+    // Checking it doesn't match
+    for (auto & s : states_labels)
+        if (s == lab)
+            throw std::logic_error("state \"" + s + "\" already registered.");
+
+    states_labels.push_back(lab);
+    state_fun.push_back(fun);
+
+    // The index has one slot per state; it is rebuilt when the next run starts.
+    state_index_ready = false;
+
+    return nstates++;
+}
+
+template<typename TSeq>
+inline Model<TSeq> & Model<TSeq>::set_state_function(
+    epiworld_fast_uint state,
+    UpdateFun<TSeq> fun
+)
+{
+
+    if (state >= nstates)
+        throw std::range_error(
+            "The state " + std::to_string(state) + " is out of range. " +
+            "The model currently has " + std::to_string(nstates) + " states."
+        );
+
+    state_fun[state] = fun;
+
+    return *this;
+
+}
+
+template<typename TSeq>
+inline Model<TSeq> & Model<TSeq>::set_state_function(
+    std::string_view name,
+    UpdateFun<TSeq> fun
+)
+{
+
+    return set_state_function(
+        static_cast<epiworld_fast_uint>(state_of(name)),
+        fun
+    );
+
+}
+
+template<typename TSeq>
+inline const std::vector< std::string > &
+Model<TSeq>::get_states() const
+{
+    return states_labels;
+}
+
+template<typename TSeq>
+inline size_t Model<TSeq>::get_n_states() const
+{
+    return nstates;
+}
+
+template<typename TSeq>
+inline const std::vector< UpdateFun<TSeq> > &
+Model<TSeq>::get_state_fun() const
+{
+    return state_fun;
+}
+
+template<typename TSeq>
+inline void Model<TSeq>::print_state_codes() const
+{
+
+    // Horizontal line
+    std::string line = "";
+    for (epiworld_fast_uint i = 0u; i < 80u; ++i)
+        line += "_";
+
+    printf_epiworld("\n%s\nstates CODES\n\n", line.c_str());
+
+    epiworld_fast_uint nchar = 0u;
+    for (auto & p : states_labels)
+        if (p.length() > nchar)
+            nchar = p.length();
+
+    std::string fmt = " %2i = %-" + std::to_string(nchar + 1 + 4) + "s\n";
+    for (epiworld_fast_uint i = 0u; i < nstates; ++i)
+    {
+
+        printf_epiworld(
+            fmt.c_str(),
+            i,
+            (states_labels[i] + " (S)").c_str()
+        );
+
+    }
+
+}
+
+
+
+template<typename TSeq>
+inline epiworld_double Model<TSeq>::add_param(
+    epiworld_double initial_value,
+    std::string pname,
+    bool overwrite
+    ) {
+
+    auto iter = param_index.find(pname);
+    if (iter == param_index.end())
+    {
+        param_index.emplace(std::move(pname), param_values.size());
+        param_values.push_back(initial_value);
+        // Names now map to positions no other model layout has
+        param_layout_id = new_param_layout_id();
+    }
+    else if (!overwrite)
+        throw std::logic_error("The parameter " + pname + " already exists.");
+    else
+        param_values[iter->second] = initial_value;
+
+    return initial_value;
+
+}
+
+template<typename TSeq>
+inline Model<TSeq> & Model<TSeq>::read_params(std::string fn, bool overwrite)
+{
+
+    auto params_map = read_yaml<epiworld_double>(fn);
+
+    for (auto & p : params_map)
+        add_param(p.second, p.first, overwrite);
+
+    return *this;
+
+}
+
+template<typename TSeq>
+inline epiworld_double Model<TSeq>::get_param(std::string_view pname) const
+{
+    const auto iter = param_index.find(pname);
+    if (iter == param_index.end())
+        throw std::logic_error(
+            "The parameter " + std::string(pname) + " does not exists."
+        );
+
+    return param_values[iter->second];
+}
+
+template<typename TSeq>
+inline bool Model<TSeq>::has_param(std::string_view pname) const
+{
+    return param_index.find(pname) != param_index.end();
+}
+
+template<typename TSeq>
+inline void Model<TSeq>::set_param(std::string_view pname, epiworld_double value)
+{
+    auto iter = param_index.find(pname);
+    if (iter == param_index.end())
+        throw std::logic_error(
+            "The parameter '" + std::string(pname) + "' does not exists."
+        );
+
+    param_values[iter->second] = value;
+
+    return;
+
+}
+
+template<typename TSeq>
+inline epiworld_double Model<TSeq>::par(std::string_view pname) const
+{
+    const auto iter = param_index.find(pname);
+    if (iter == param_index.end())
+        throw std::logic_error(
+            "The parameter '" + std::string(pname) + "' does not exists."
+        );
+    return param_values[iter->second];
+}
+
+template<typename TSeq>
+inline ParamId Model<TSeq>::get_param_id(std::string_view pname) const
+{
+    const auto iter = param_index.find(pname);
+    if (iter == param_index.end())
+        throw std::logic_error(
+            "The parameter '" + std::string(pname) + "' does not exists."
+        );
+    return ParamId{iter->second};
+}
+
+template<typename TSeq>
+inline epiworld_double Model<TSeq>::par_at(ParamId id) const
+{
+    if (id.idx >= param_values.size())
+        throw std::out_of_range(
+            "The parameter position " + std::to_string(id.idx) +
+            " is out of range (the model has " +
+            std::to_string(param_values.size()) + " parameters)."
+        );
+    return param_values[id.idx];
+}
+
+template<typename TSeq>
+inline void Model<TSeq>::set_param_at(ParamId id, epiworld_double value)
+{
+    if (id.idx >= param_values.size())
+        throw std::out_of_range(
+            "The parameter position " + std::to_string(id.idx) +
+            " is out of range (the model has " +
+            std::to_string(param_values.size()) + " parameters)."
+        );
+    param_values[id.idx] = value;
+}
+
+#define DURCAST(tunit,txtunit) {\
+        elapsed       = std::chrono::duration_cast<std::chrono:: tunit>(\
+            time_end - time_start).count(); \
+        elapsed_total = std::chrono::duration_cast<std::chrono:: tunit>(time_elapsed).count(); \
+        abbr_unit     = txtunit;}
+
+template<typename TSeq>
+inline void Model<TSeq>::get_elapsed(
+    std::string unit,
+    epiworld_double * last_elapsed,
+    epiworld_double * total_elapsed,
+    std::string * unit_abbr,
+    bool print
+) const {
+
+    // Preparing the result
+    epiworld_double elapsed, elapsed_total;
+    std::string abbr_unit;
+
+    // Figuring out the length
+    if (unit == "auto")
+    {
+
+        size_t tlength = std::to_string(
+            static_cast<int>(floor(time_elapsed.count()))
+            ).length();
+
+        if (tlength <= 1)
+            unit = "nanoseconds";
+        else if (tlength <= 3)
+            unit = "microseconds";
+        else if (tlength <= 6)
+            unit = "milliseconds";
+        else if (tlength <= 8)
+            unit = "seconds";
+        else if (tlength <= 9)
+            unit = "minutes";
+        else
+            unit = "hours";
+
+    }
+
+    if (unit == "nanoseconds")       DURCAST(nanoseconds,"ns")
+    else if (unit == "microseconds") DURCAST(microseconds,"\xC2\xB5s")
+    else if (unit == "milliseconds") DURCAST(milliseconds,"ms")
+    else if (unit == "seconds")      DURCAST(seconds,"s")
+    else if (unit == "minutes")      DURCAST(minutes,"m")
+    else if (unit == "hours")        DURCAST(hours,"h")
+    else
+        throw std::range_error("The time unit " + unit + " is not supported.");
+
+
+    if (last_elapsed != nullptr)
+        *last_elapsed = elapsed;
+    if (total_elapsed != nullptr)
+        *total_elapsed = elapsed_total;
+    if (unit_abbr != nullptr)
+        *unit_abbr = abbr_unit;
+
+    if (!print)
+        return;
+
+    if (n_replicates > 1u)
+    {
+        printf_epiworld("last run elapsed time : %.2f%s\n",
+            elapsed, abbr_unit.c_str());
+        printf_epiworld("total elapsed time    : %.2f%s\n",
+            elapsed_total, abbr_unit.c_str());
+        printf_epiworld("total runs            : %i\n",
+            static_cast<int>(n_replicates));
+        printf_epiworld("mean run elapsed time : %.2f%s\n",
+            elapsed_total/static_cast<epiworld_double>(n_replicates), abbr_unit.c_str());
+
+    } else {
+        printf_epiworld("last run elapsed time : %.2f%s.\n", elapsed, abbr_unit.c_str());
+    }
+}
+
+template<typename TSeq>
+inline void Model<TSeq>::set_user_data(std::vector< std::string > names)
+{
+    db.set_user_data(names);
+}
+
+template<typename TSeq>
+inline void Model<TSeq>::add_user_data(epiworld_fast_uint j, epiworld_double x)
+{
+    db.add_user_data(j, x);
+}
+
+template<typename TSeq>
+inline void Model<TSeq>::add_user_data(std::vector<epiworld_double> x)
+{
+    db.add_user_data(x);
+}
+
+template<typename TSeq>
+inline UserData<TSeq> & Model<TSeq>::get_user_data()
+{
+    return db.get_user_data();
+}
+
+template<typename TSeq>
+inline void Model<TSeq>::add_globalevent(
+    std::function<void(Model<TSeq>*)> fun,
+    std::string name,
+    int date
+)
+{
+    auto event = GlobalEvent<TSeq>(fun, name, date);
+    add_globalevent(event);
+
+}
+
+template<typename TSeq>
+inline void Model<TSeq>::add_globalevent(
+    GlobalEvent<TSeq> & action
+)
+{
+    auto ptr = action.clone_ptr();
+    globalevents.push_back(GlobalEventPtr<TSeq>(std::move(ptr)));
+}
+
+template<typename TSeq>
+GlobalEvent<TSeq> & Model<TSeq>::get_globalevent(
+    std::string name
+)
+{
+
+    for (auto & a : globalevents)
+        if (a->get_name() == name)
+            return *a;
+
+    throw std::logic_error("The global action " + name + " was not found.");
+
+}
+
+template<typename TSeq>
+inline bool Model<TSeq>::has_globalevent(std::string_view name) const
+{
+    for (const auto & a : globalevents)
+        if (a->get_name() == name)
+            return true;
+    return false;
+}
+
+template<typename TSeq>
+GlobalEvent<TSeq> & Model<TSeq>::get_globalevent(
+    size_t index
+)
+{
+
+    if (index >= globalevents.size())
+        throw std::range_error("The index " + std::to_string(index) + " is out of range.");
+
+    return *globalevents[index];
+
+}
+
+// Remove implementation
+template<typename TSeq>
+inline void Model<TSeq>::rm_globalevent(
+    std::string name
+)
+{
+
+    for (auto it = globalevents.begin(); it != globalevents.end(); ++it)
+    {
+        if ((*it)->get_name() == name)
+        {
+            globalevents.erase(it);
+            return;
+        }
+    }
+
+    throw std::logic_error("The global action " + name + " was not found.");
+
+}
+
+// Same as above, but the index implementation
+template<typename TSeq>
+inline void Model<TSeq>::rm_globalevent(
+    size_t index
+)
+{
+
+    if (index >= globalevents.size())
+        throw std::range_error("The index " + std::to_string(index) + " is out of range.");
+
+    globalevents.erase(globalevents.begin() + index);
+
+}
+
+template<typename TSeq>
+inline size_t Model<TSeq>::get_n_globalevents() const
+{
+    return globalevents.size();
+}
+
+template<typename TSeq>
+inline void Model<TSeq>::run_globalevents()
+{
+
+    for (auto & event: globalevents)
+    {
+        event->operator()(this, today());
+        events_run();
+    }    
+
+}
+
+template<typename TSeq>
+inline void Model<TSeq>::queuing_on()
+{
+    use_queuing = true;
+}
+
+template<typename TSeq>
+inline Model<TSeq> & Model<TSeq>::queuing_off()
+{
+    use_queuing = false;
+    return *this;
+}
+
+template<typename TSeq>
+inline bool Model<TSeq>::is_queuing_on() const
+{
+    return use_queuing;
+}
+
+template<typename TSeq>
+inline Queue<TSeq> & Model<TSeq>::get_queue()
+{
+    return queue;
+}
+
+template<typename TSeq>
+inline Model<TSeq> & Model<TSeq>::contact_tracing_on(size_t max_contacts)
+{
+    if (max_contacts < 1u)
+        throw std::logic_error("Contact tracing should use at least one contact.");
+    use_contact_tracing = true;
+    contact_tracing_max_contacts = max_contacts;
+    return *this;
+}
+
+template<typename TSeq>
+inline Model<TSeq> & Model<TSeq>::contact_tracing_off()
+{
+    use_contact_tracing = false;
+    contact_tracing.reset();
+    return *this;
+}
+
+template<typename TSeq>
+inline bool Model<TSeq>::is_contact_tracing_on() const
+{
+    return use_contact_tracing;
+}
+
+template<typename TSeq>
+inline ContactTracing & Model<TSeq>::get_contact_tracing()
+{
+    if (!use_contact_tracing)
+        throw std::logic_error(
+            "Contact tracing is not active. Call contact_tracing_on() first."
+        );
+
+    if (!contact_tracing)
+        contact_tracing = std::make_unique<ContactTracing>();
+    return *contact_tracing;
+}
+
+template<typename TSeq>
+inline const std::vector< VirusPtr<TSeq> > & Model<TSeq>::get_viruses() const
+{
+    return viruses;
+}
+
+template<typename TSeq>
+const std::vector< ToolPtr<TSeq> > & Model<TSeq>::get_tools() const
+{
+    return tools;
+}
+
+template<typename TSeq>
+inline Virus<TSeq> & Model<TSeq>::get_virus(size_t id)
+{
+
+    if (viruses.size() <= id)
+        throw std::length_error("The specified id for the virus is out of range");
+
+    return *viruses[id];
+
+}
+
+template<typename TSeq>
+inline Virus<TSeq> & Model<TSeq>::get_virus(std::string_view name)
+{
+
+    for (auto & v : viruses)
+        if (v->get_name() == name)
+            return *v;
+
+    throw std::logic_error("The virus " + std::string(name) + " was not found.");
+
+}
+
+template<typename TSeq>
+inline Tool<TSeq> & Model<TSeq>::get_tool(size_t id)
+{
+
+    if (tools.size() <= id)
+        throw std::length_error("The specified id for the tools is out of range");
+
+    return *tools[id];
+
+}
+
+template<typename TSeq>
+inline Tool<TSeq> & Model<TSeq>::get_tool(std::string_view name)
+{
+    for (auto & t : tools)
+        if (t->get_name() == name)
+            return *t;
+
+    throw std::logic_error("The tool " + std::string(name) + " was not found.");
+
+}
+
+template<typename TSeq>
+inline bool Model<TSeq>::has_virus(std::string_view name) const
+{
+    for (const auto & v : viruses)
+        if (v->get_name() == name)
+            return true;
+
+    return false;
+}
+
+template<typename TSeq>
+inline bool Model<TSeq>::has_tool(std::string_view name) const
+{
+    for (const auto & t : tools)
+        if (t->get_name() == name)
+            return true;
+    return false;
+}
+
+
+template<typename TSeq>
+inline void Model<TSeq>::set_agents_data(double * data_, size_t ncols_)
+{
+    agents_data = data_;
+    agents_data_ncols = ncols_;
+}
+
+template<typename TSeq>
+inline double * Model<TSeq>::get_agents_data() {
+    return this->agents_data;
+}
+
+template<typename TSeq>
+inline size_t Model<TSeq>::get_agents_data_ncols() const {
+    return this->agents_data_ncols;
+}
+
+
+template<typename TSeq>
+inline void Model<TSeq>::set_name(std::string name)
+{
+    this->name = name;
+}
+
+template<typename TSeq>
+inline std::string Model<TSeq>::get_name() const
+{
+    return this->name;
+}
+
+#define VECT_MATCH(a, b, c) \
+    EPI_DEBUG_FAIL_AT_TRUE(a.size() != b.size(), c) \
+    for (size_t __i = 0u; __i < a.size(); ++__i) \
+    {\
+        EPI_DEBUG_FAIL_AT_TRUE(a[__i] != b[__i], c) \
+    }
+
+template<typename TSeq>
+inline bool Model<TSeq>::operator==(const Model<TSeq> & other) const
+{
+    EPI_DEBUG_FAIL_AT_TRUE(name != other.name, "names don't match")
+    EPI_DEBUG_FAIL_AT_TRUE(db != other.db, "database don't match")
+
+    VECT_MATCH(population, other.population, "population doesn't match")
+
+    EPI_DEBUG_FAIL_AT_TRUE(
+        using_backup != other.using_backup,
+        "Model:: using_backup don't match"
+        )
+
+    if ((population_backup.size() != 0) & (other.population_backup.size() != 0))
+    {
+
+        // False is population_backup.size() != other.population_backup.size()
+        if (population_backup.size() != other.population_backup.size())
+            return false;
+
+        for (size_t i = 0u; i < population_backup.size(); ++i)
+        {
+            if (population_backup[i] != other.population_backup[i])
+                return false;
+        }
+
+    } else if ((population_backup.size() == 0) & (other.population_backup.size() != 0)) {
+        return false;
+    } else if ((population_backup.size() != 0) & (other.population_backup.size() == 0))
+    {
+        return false;
+    }
+
+    EPI_DEBUG_FAIL_AT_TRUE(
+        agents_data != other.agents_data,
+        "Model:: agents_data don't match"
+    )
+
+    EPI_DEBUG_FAIL_AT_TRUE(
+        agents_data_ncols != other.agents_data_ncols,
+        "Model:: agents_data_ncols don't match"
+    )
+
+    EPI_DEBUG_FAIL_AT_TRUE(
+        directed != other.directed,
+        "Model:: directed don't match"
+    )
+
+    // Viruses -----------------------------------------------------------------
+    EPI_DEBUG_FAIL_AT_TRUE(
+        viruses.size() != other.viruses.size(),
+        "Model:: viruses.size() don't match"
+        )
+
+    for (size_t i = 0u; i < viruses.size(); ++i)
+    {
+        EPI_DEBUG_FAIL_AT_TRUE(
+            *viruses[i] != *other.viruses[i],
+            "Model:: *viruses[i] don't match"
+        )
+
+    }
+
+    // Tools -------------------------------------------------------------------
+    EPI_DEBUG_FAIL_AT_TRUE(
+        tools.size() != other.tools.size(),
+        "Model:: tools.size() don't match"
+        )
+
+    for (size_t i = 0u; i < tools.size(); ++i)
+    {
+        EPI_DEBUG_FAIL_AT_TRUE(
+            *tools[i] != *other.tools[i],
+            "Model:: *tools[i] don't match"
+        )
+
+    }
+
+    EPI_DEBUG_FAIL_AT_TRUE(
+        entities.size() != other.entities.size(),
+        "Model:: entities.size() don't match"
+        )
+    for (size_t i = 0u; i < entities.size(); ++i)
+    {
+        EPI_DEBUG_FAIL_AT_TRUE(
+            entities[i] != other.entities[i],
+            "Model:: *entities[i] don't match"
+        )
+
+    }
+
+    EPI_DEBUG_FAIL_AT_TRUE(
+        rewire_prop != other.rewire_prop,
+        "Model:: rewire_prop don't match"
+    )
+
+    EPI_DEBUG_FAIL_AT_TRUE(
+        param_values.size() != other.param_values.size(),
+        "Model:: () don't match"
+    )
+
+    EPI_DEBUG_FAIL_AT_TRUE(
+        // By name, so the order parameters were added in does not matter
+        params() != other.params(),
+        "Model:: parameters don't match"
+    )
+
+    EPI_DEBUG_FAIL_AT_TRUE(
+        ndays != other.ndays,
+        "Model:: ndays don't match"
+    )
+
+    VECT_MATCH(
+        states_labels,
+        other.states_labels,
+        "state labels don't match"
+    )
+
+    EPI_DEBUG_FAIL_AT_TRUE(
+        nstates != other.nstates,
+        "Model:: nstates don't match"
+    )
+
+    EPI_DEBUG_FAIL_AT_TRUE(
+        verbose != other.verbose,
+        "Model:: verbose don't match"
+    )
+
+    EPI_DEBUG_FAIL_AT_TRUE(
+        current_date != other.current_date,
+        "Model:: current_date don't match"
+    )
+
+    // Global events are held by pointer and deep-copied when a model is copied,
+    // so they must be compared through the pointer (as viruses and tools are).
+    EPI_DEBUG_FAIL_AT_TRUE(
+        globalevents.size() != other.globalevents.size(),
+        "Model:: globalevents.size() don't match"
+    )
+
+    for (size_t i = 0u; i < globalevents.size(); ++i)
+    {
+        EPI_DEBUG_FAIL_AT_TRUE(
+            *globalevents[i] != *other.globalevents[i],
+            "Model:: *globalevents[i] don't match"
+        )
+    }
+
+    EPI_DEBUG_FAIL_AT_TRUE(
+        queue != other.queue,
+        "Model:: queue don't match"
+    )
+
+
+    EPI_DEBUG_FAIL_AT_TRUE(
+        use_queuing != other.use_queuing,
+        "Model:: use_queuing don't match"
+    )
+
+    EPI_DEBUG_FAIL_AT_TRUE(
+        transmission_mode != other.transmission_mode,
+        "Model:: transmission_mode don't match"
+    )
+
+    EPI_DEBUG_FAIL_AT_TRUE(
+        transmission_kappa != other.transmission_kappa,
+        "Model:: transmission_kappa don't match"
+    )
+
+    return true;
+
+}
+
+template<typename TSeq>
+inline void Model<TSeq>::draw(
+    DiagramType diagram_type,
+    const std::string & fn_output,
+    bool self
+) {
+
+    ModelDiagram diagram;
+
+    diagram.draw_from_data(
+        diagram_type,
+        this->get_states(),
+        this->get_db().get_transition_probability(false),
+        fn_output,
+        self
+    );
+
+    return;
+
+}
+
+template<typename TSeq>
+inline void Model<TSeq>::record_hospitalization(Agent<TSeq> & agent)
+{
+    db.record_hospitalization(agent);
+}
+
+template<typename TSeq>
+inline void Model<TSeq>::get_hospitalizations(
+    std::vector<int> & date,
+    std::vector<int> & virus_id,
+    std::vector<int> & tool_id,
+    std::vector<int> & count,
+    std::vector<double> & weight
+) const
+{
+    db.get_hospitalizations(date, virus_id, tool_id, count, weight);
+}
+
+#undef VECT_MATCH
+#undef DURCAST
+#undef CASES_PAR
+#undef CASE_PAR
+#undef CHECK_INIT
+#endif
