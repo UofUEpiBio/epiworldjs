@@ -9,8 +9,12 @@ let modulePromise;
 
 // Instantiates the module once; a failed load is retried on the next call.
 function loadModule() {
-  modulePromise ??= import("../dist/core.js")
-    .then(({ default: createEpiworldModule }) => createEpiworldModule())
+  // core.wasm is found next to core.js, wherever this module was loaded from
+  // (a CDN, or a worker started from a blob: URL)
+  const url = new URL("../dist/core.js", import.meta.url);
+  modulePromise ??= import(url.href)
+    .then(({ default: createEpiworldModule }) =>
+      createEpiworldModule({ locateFile: (file) => new URL(file, url).href }))
     .catch((error) => {
       modulePromise = undefined;
       throw error;

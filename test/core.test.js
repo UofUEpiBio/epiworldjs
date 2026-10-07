@@ -129,6 +129,7 @@ test("version() reports epiworld and measles", () => {
 test("Epiworld.run resolves to the same tables", async () => {
   const ew = await Epiworld.load();
   const spec = { model: "SIS", n: 200, ndays: 10, seed: 9 };
-  assert.deepEqual(await ew.run(spec), core.run(spec));
+  assert.deepEqual((await ew.run(spec)).tables, core.run(spec));
   assert.equal(ew.models().length, 17);
+  ew.terminate();
 });
