@@ -56,6 +56,10 @@ that is already on npm is not published again.
 2. On npmjs.com, open the package's **Settings → Trusted publishing** and add
    a GitHub Actions publisher: organization `UofUEpiBio`, repository
    `epiworldjs`, workflow `publish.yml`, environment `npm`.
+   Under **Allowed actions**, tick **Allow `npm publish`**: without it the
+   publisher can only stage versions and the workflow fails with
+   `403 OIDC permission denied`. The environment must also exist in the
+   repository's settings and match exactly.
 3. Push the `v0.18.0-0` tag; the workflow runs the tests, skips the publish
    (0.18.0-0 is already on npm) and creates the GitHub release. Later tags
    publish on their own.
