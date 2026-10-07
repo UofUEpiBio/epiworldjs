@@ -14,6 +14,7 @@ test("models() lists every model with its parameters and states", () => {
       "SIR", "SIS", "SEIR", "SIRD", "SISD", "SEIRD",
       "SIRCONN", "SEIRCONN", "SIRDCONN", "SEIRDCONN",
       "SIRMixing", "SEIRMixing", "SEIRMixingQuarantine", "SEIRNetworkQuarantine",
+      "MeaslesSchool", "MeaslesMixing", "MeaslesMixingRiskQuarantine",
     ],
   );
 
@@ -107,9 +108,27 @@ test("invalid specs throw an Error naming the problem", () => {
   assert.throws(() => core.run(ok, [3]), /Simulation ids/);
 });
 
+test("measles models use their own defaults", () => {
+  const school = core.run({ model: "MeaslesSchool", ndays: 0 }).total_hist;
+  const total = school.counts.reduce((a, b) => a + b);
+  assert.equal(total, 500);
+
+  // One initial case: the agents outside "Susceptible" on day 0
+  const susceptible = school.counts[school.state.indexOf("Susceptible")];
+  assert.ok(total - susceptible >= 1);
+
+  const mixing = core.run({ model: "MeaslesMixing", ndays: 0 }).total_hist;
+  assert.equal(mixing.counts.reduce((a, b) => a + b), 9000);
+});
+
+test("version() reports epiworld and measles", () => {
+  assert.match(core.version().epiworld, /^\d+\.\d+\.\d+/);
+  assert.match(core.version().measles, /^\d+\.\d+\.\d+/);
+});
+
 test("Epiworld.run resolves to the same tables", async () => {
   const ew = await Epiworld.load();
   const spec = { model: "SIS", n: 200, ndays: 10, seed: 9 };
   assert.deepEqual(await ew.run(spec), core.run(spec));
-  assert.equal(ew.models().length, 14);
+  assert.equal(ew.models().length, 17);
 });
