@@ -36,7 +36,12 @@ function browserWorker(url) {
 
 async function nodeWorker(url) {
   const { Worker } = await import("node:worker_threads");
-  const worker = new Worker(url);
+  // Workers inherit the parent's flags, but --input-type (as in
+  // `node --input-type=module -e ...`) is only valid for the main script.
+  // execArgv is only set then: an explicit one is validated, and some
+  // inherited flags (e.g. the test runner's) would be rejected.
+  const execArgv = process.execArgv.filter((arg) => !arg.startsWith("--input-type"));
+  const worker = new Worker(url, execArgv.length < process.execArgv.length ? { execArgv } : {});
   return {
     post: (message) => worker.postMessage(message),
     listen: (fun) => {
