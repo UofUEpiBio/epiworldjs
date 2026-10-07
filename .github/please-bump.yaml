@@ -1,0 +1,16 @@
+version: 1
+groups:
+  epiworldjs:
+    # What ships in the npm package; the site, tests and CI do not need a bump
+    paths:
+      - src/
+      - cpp/
+      - vendor/
+      - Makefile
+      - package.json
+    # Versions are epiworld's X.Y.Z plus -N (see RELEASING.md); the lockfile
+    # must carry the same version
+    preset: node-package
+    files:
+      - package.json
+      - package-lock.json

@@ -1,7 +1,9 @@
 name: Publish
 # Publishes to npm when a version tag (v0.18.0-0, ...) is pushed. Uses npm's
 # trusted publishing: no token is stored; npm trusts this workflow through
-# GitHub's OIDC, and the package gets a provenance statement.
+# GitHub's OIDC, and the package gets a provenance statement. Each tag also
+# gets a GitHub release, which is what please-bump reads to know that a
+# version has shipped (and that the next change needs a new one).
 on:
   push:
     tags: ["v*"]
@@ -62,3 +64,17 @@ jobs:
             # X.Y.Z-N is a pre-release to npm, which requires a tag for it
             npm publish --tag latest
           fi
+
+  release:
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: GitHub release for the tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 ||
+            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag \
+              --title "epiworldjs $GITHUB_REF_NAME" --generate-notes
