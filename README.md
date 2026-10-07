@@ -1,34 +1,50 @@
 # epiworldjs
 
-> **Status: pre-alpha.** The engine, the JavaScript API and the
-> `<epiworld-model>` element work; try them in the
-> [playground](https://uofuepibio.github.io/epiworldjs/). Until the first npm
-> release, the snippets below load the package from the GitHub Pages site,
-> which allows any origin; after it, jsDelivr and unpkg will serve it too.
-> The implementation plan is in [`plan.md`](plan.md). Feedback is welcome in
-> the issues.
+[![npm](https://img.shields.io/npm/v/epiworldjs)](https://www.npmjs.com/package/epiworldjs)
+[![CI](https://github.com/UofUEpiBio/epiworldjs/actions/workflows/ci.yml/badge.svg)](https://github.com/UofUEpiBio/epiworldjs/actions/workflows/ci.yml)
+[![Playground](https://img.shields.io/badge/playground-GitHub%20Pages-0072b2)](https://uofuepibio.github.io/epiworldjs/)
 
 **epiworldjs** runs the [epiworld](https://github.com/UofUEpiBio/epiworld)
-agent-based epidemiological simulation engine in the browser by compiling
-it to WebAssembly. The goal: put *real* epiworld models -- the same C++
-engine behind [epiworldR](https://github.com/UofUEpiBio/epiworldR) and
+agent-based epidemiological simulation engine in the browser (and in Node)
+by compiling it to WebAssembly. It puts *real* epiworld models -- the same
+C++ engine behind [epiworldR](https://github.com/UofUEpiBio/epiworldR) and
 [epiworldpy](https://github.com/UofUEpiBio/epiworldpy) -- on any static
 website (GitHub Pages, Quarto, R Markdown, a course page, a blog) with no
-server.
+server: every simulation runs in the visitor's browser.
 
-Today, putting epiworld on the web means R Shiny
+Before, putting epiworld on the web meant R Shiny
 ([epiworldRShiny](https://github.com/UofUEpiBio/epiworldRShiny)) and a
-running R server. epiworldjs replaces that with a script tag.
+running R server. With epiworldjs it takes a script tag.
 
-## What it will look like
+**Try it:** the [playground](https://uofuepibio.github.io/epiworldjs/) has
+every model, with sliders.
 
-### The easy way: a web component
+## Install
+
+From a CDN, with nothing to install:
+
+```html
+<script type="module"
+  src="https://cdn.jsdelivr.net/npm/epiworldjs/dist/epiworld-model.js"></script>
+```
+
+or from npm, for bundlers and Node:
+
+```sh
+npm install epiworldjs
+```
+
+To pin a version, add it to the URL:
+`https://cdn.jsdelivr.net/npm/epiworldjs@0.18.0-0/dist/epiworld-model.js`.
+unpkg works too (`https://unpkg.com/epiworldjs/dist/epiworld-model.js`).
+
+## The easy way: a web component
 
 One script tag, one HTML tag:
 
 ```html
 <script type="module"
-  src="https://uofuepibio.github.io/epiworldjs/dist/epiworld-model.js"></script>
+  src="https://cdn.jsdelivr.net/npm/epiworldjs/dist/epiworld-model.js"></script>
 
 <epiworld-model
   model="SEIRCONN"
@@ -36,7 +52,8 @@ One script tag, one HTML tag:
   nsims="30"
   n="10000"
   params='{"Contact rate": 4}'
-  controls="Contact rate, Prob. Transmission">
+  controls="Contact rate, Prob. Transmission"
+  autorun live>
 </epiworld-model>
 ```
 
@@ -48,21 +65,37 @@ The `<epiworld-model>` element:
   (debounced re-runs while sliders move);
 - draws a built-in, dependency-free SVG chart of the state counts over
   time -- with `nsims > 1`, the median and a 95% band -- plus a summary
-  (peak, day of peak, final size);
+  (peak active cases, day of peak, outbreak size);
 - offers `model-picker` (a drop-down with every model, i.e., a static
   Shiny-like playground) and **Download CSV**;
 - is themeable with CSS custom properties (`--epiworld-color-<state>`,
-  fonts), `::part()` selectors, and follows light/dark mode;
+  `--epiworld-accent`, `--epiworld-font`, ...), `::part()` selectors, and
+  follows light/dark mode;
 - takes `hide="Susceptible, ..."` for states hidden at first (the legend
   toggles them);
 - emits an `epiworld-result` event and exposes `.result`, so pages can do
   their own plotting.
 
-### The flexible way: a JavaScript API
+### In Quarto or R Markdown
+
+The same two tags go in a raw HTML block:
+
+````markdown
+```{=html}
+<script type="module"
+  src="https://cdn.jsdelivr.net/npm/epiworldjs/dist/epiworld-model.js"></script>
+<epiworld-model model="MeaslesSchool" nsims="50"
+  params='{"Vaccination rate": 0.8, "Quarantine willingness": 0}'
+  controls="Vaccination rate, Quarantine willingness" autorun live>
+</epiworld-model>
+```
+````
+
+## The flexible way: a JavaScript API
 
 ```js
-// After the npm release: import { Epiworld } from "epiworldjs";
-import { Epiworld } from "https://uofuepibio.github.io/epiworldjs/dist/epiworld-model.js";
+// With npm: import { Epiworld } from "epiworldjs";
+import { Epiworld } from "https://cdn.jsdelivr.net/npm/epiworldjs/dist/epiworld-model.js";
 
 const ew = await Epiworld.load();     // starts a pool of Web Workers
 ew.models();                          // metadata for every model: params, defaults, ranges
@@ -79,8 +112,10 @@ const res = await ew.run({
 });
 
 res.summary();   // median + 2.5% / 97.5% bands per state and day
-res.toCSV();
+res.toCSV();     // any output table, with epiworld's CSV columns
 ```
+
+The same code runs in Node (20+), where the workers are `worker_threads`.
 
 Parameter names are the epiworld names (`"Contact rate"`,
 `"Prob. Transmission"`, ...), the same ones you use in epiworldR and
@@ -90,7 +125,7 @@ parameters, and an unknown name is an error.
 
 ## Models
 
-v1 will cover epiworld's built-in models and the
+epiworld's built-in models and the
 [measles](https://github.com/UofUEpiBio/measles) models:
 
 | Family | Models |
@@ -136,19 +171,19 @@ vendor/epiworld + vendor/measles  (header-only C++, vendored)
 - **CDN-friendly.** Workers start from a `Blob` URL and the `.wasm` file
   is located from `import.meta.url`, so loading from jsDelivr/unpkg on
   another origin works.
-- **No runtime dependencies.** Plain ES modules (JSDoc + generated
-  `.d.ts`), no framework, no bundler required.
+- **No runtime dependencies.** Plain ES modules documented with JSDoc; no
+  framework, no bundler required.
 
-### Repository layout (planned)
+### Repository layout
 
 ```
 vendor/epiworld/   copy of epiworld's include/epiworld/   (make update-epiworld)
 vendor/measles/    copy of measles' inst/include/measles/ (make update-measles)
 vendor/VERSIONS    source commit SHAs and versions
 cpp/               registry.hpp, core.hpp, bindings.cpp, golden.cpp
-src/               index.js, worker.js, core.js, element.js, chart.js, summarize.js
-site/              GitHub Pages gallery + playground, Quarto example
-test/              Node tests, golden outputs, Playwright smoke test
+src/               index.js, worker.js, core.js, result.js, element.js, chart.js
+site/              the GitHub Pages site and playground
+test/              Node tests; e2e/ has the Playwright tests and a dev server
 ```
 
 The WASM build uses [Emscripten](https://emscripten.org/) from a pinned
@@ -160,43 +195,34 @@ emcc -O3 -std=c++17 -fwasm-exceptions -lembind \
   -sALLOW_MEMORY_GROWTH -sEXPORT_NAME=createEpiworldModule ...
 ```
 
-## Testing (planned)
+## Testing
 
-- **Golden equivalence:** the same specs run through a native `g++` build
-  and the WASM build must produce identical outputs for every model.
-- **Worker invariance:** 1, 2, and 4 workers give identical results.
+- **Golden equivalence:** the same specs run through a native build
+  (clang with libc++, the standard library Emscripten uses) and the WASM
+  build must produce byte-identical outputs for every model.
+- **Worker invariance:** 0, 1, 2, and 4 workers give identical results.
 - **Node tests:** every registered model runs with its defaults, conserves
   the population, and rejects unknown or out-of-range parameters with a
   clear error.
 - **Playwright smoke test:** the playground renders, re-runs when a
   slider moves, exports CSV, and loads cross-origin.
 
+## Versions and releases
+
+Versions are epiworld's `X.Y.Z` followed by `-N`, as in epiworldR and
+epiworldpy: `0.18.0-0` is the first epiworldjs release built on epiworld
+0.18.0. See [RELEASING.md](RELEASING.md).
+
 ## Roadmap
 
-Follow the implementation order in [plan.md](plan.md).
+The implementation followed [plan.md](plan.md); all of its v1 steps are done
+(the engine and registry, the measles models, the worker pool, the element
+and the playground, and npm releases). Next:
 
-1. epiworld: in-memory savers for `run_multiple`
-   ([epiworld#290](https://github.com/UofUEpiBio/epiworld/pull/290), merged)
-   and the wasm32 fix in `postsampling-meat.hpp` (pending upstream; the
-   vendored headers already include it).
-2. Scaffold: vendoring, devcontainer, minimal SIRCONN running in Node. Done.
-3. Model registry + core for the built-in models; golden tests. **Done:**
-   all 14 built-in models run through `run(spec)`; CI checks that native
-   (clang/libc++) and WASM builds give byte-identical outputs, and that
-   running the simulations in slices reproduces `run_multiple`.
-4. Measles models. **Done:** MeaslesSchool, MeaslesMixing and
-   MeaslesMixingRiskQuarantine, vendored from
-   [measles](https://github.com/UofUEpiBio/measles) (MIT).
-5. Worker pool and `Epiworld` JS API. **Done:** runs are split across
-   Web Workers (worker_threads in Node) with identical results for any
-   number of workers; `Result` has `summary()` and `toCSV()`.
-6. `<epiworld-model>` and the SVG chart; GitHub Pages playground. **Done:**
-   `site/` is deployed to [GitHub Pages](https://uofuepibio.github.io/epiworldjs/);
-   Playwright tests the playground and loading from another origin.
-7. CI, npm publishing, docs with copy-paste HTML and Quarto snippets.
-
-Later: step-by-step runs for animations, custom models defined in JS,
-network visualization, calibration.
+- an MCP server so AI assistants can run epiworld models
+  ([#10](https://github.com/UofUEpiBio/epiworldjs/issues/10));
+- step-by-step runs for animations, custom models defined in JS, network
+  visualization, and calibration.
 
 ## Related projects
 

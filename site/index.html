@@ -80,6 +80,7 @@
       </p>
       <nav>
         <a href="https://github.com/UofUEpiBio/epiworldjs">GitHub</a>
+        <a href="https://www.npmjs.com/package/epiworldjs">npm</a>
         <a href="#embed">Embed a model</a>
         <a href="#api">JavaScript API</a>
       </nav>
@@ -101,10 +102,11 @@
       <p>
         One script tag and one element, in plain HTML, Quarto, R Markdown, or a CMS.
         <code>controls</code> chooses which sliders to show, by epiworld's parameter names.
-        The script comes from this site, which allows loading from any origin.
+        The script comes from the <a href="https://www.npmjs.com/package/epiworldjs">npm package</a>
+        through jsDelivr; add a version to pin it (<code>epiworldjs@0.18.0-0</code>).
       </p>
       <pre><code>&lt;script type="module"
-  src="https://uofuepibio.github.io/epiworldjs/dist/epiworld-model.js"&gt;&lt;/script&gt;
+  src="https://cdn.jsdelivr.net/npm/epiworldjs/dist/epiworld-model.js"&gt;&lt;/script&gt;
 
 &lt;epiworld-model model="MeaslesSchool" nsims="50"
   params='{"Vaccination rate": 0.8, "Quarantine willingness": 0}'
@@ -126,9 +128,10 @@
       <h2>JavaScript API</h2>
       <p>
         For your own plots, run models directly. Simulations are split across Web Workers,
-        and the results are the same for any number of workers.
+        and the results are the same for any number of workers. With a bundler or in Node,
+        <code>npm install epiworldjs</code> and <code>import { Epiworld } from "epiworldjs"</code>.
       </p>
-      <pre><code>import { Epiworld } from "https://uofuepibio.github.io/epiworldjs/dist/epiworld-model.js";
+      <pre><code>import { Epiworld } from "https://cdn.jsdelivr.net/npm/epiworldjs/dist/epiworld-model.js";
 
 const ew = await Epiworld.load();
 const res = await ew.run({
