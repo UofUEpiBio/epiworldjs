@@ -6,16 +6,19 @@ on:
 permissions:
   contents: read
 jobs:
-  native:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - run: make test-native
-  wasm:
+  test:
     runs-on: ubuntu-latest
     container: emscripten/emsdk:3.1.74
     steps:
       - uses: actions/checkout@v4
-      - run: make wasm
+      # Same packages as .devcontainer/Dockerfile
+      - run: |
+          apt-get update
+          apt-get install -y --no-install-recommends clang libc++-dev libc++abi-dev
+      - run: make test-native wasm build/golden-native.txt build/golden.cjs
       # Run from the shell: make cannot exec node in this container
-      - run: node --test test/
+      - run: node --test test/*.test.js
+      - name: Golden (native and WASM outputs must be identical)
+        run: |
+          node build/golden.cjs > build/golden-wasm.txt
+          cmp build/golden-native.txt build/golden-wasm.txt
