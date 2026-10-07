@@ -85,8 +85,9 @@ define vendor
 	rm -rf vendor/$(1)
 	cp -R build/$(1)-src/$(4) vendor/$(1)
 	cp build/$(1)-src/LICENSE.md vendor/$(1)/LICENSE.md
-	grep -v '^$(1) ' vendor/VERSIONS > vendor/VERSIONS.tmp || true
-	printf '%s %s %s\n' $(1) $(2) $$(git -C build/$(1)-src rev-parse HEAD) >> vendor/VERSIONS.tmp
+	# One line per dependency, sorted (the "#" header sorts first)
+	{ grep -v '^$(1) ' vendor/VERSIONS || true; \
+	  printf '%s %s %s\n' $(1) $(2) $$(git -C build/$(1)-src rev-parse HEAD); } | sort > vendor/VERSIONS.tmp
 	mv vendor/VERSIONS.tmp vendor/VERSIONS
 endef
 
