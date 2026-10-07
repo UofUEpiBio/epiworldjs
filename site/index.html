@@ -67,7 +67,7 @@
     .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
     footer { margin-top: 48px; color: var(--muted); font-size: 0.85rem; }
   </style>
-  <script type="module" src="../dist/epiworld-model.js"></script>
+  <script type="module" src="./dist/epiworld-model.js"></script>
 </head>
 <body>
   <main>
@@ -101,9 +101,10 @@
       <p>
         One script tag and one element, in plain HTML, Quarto, R Markdown, or a CMS.
         <code>controls</code> chooses which sliders to show, by epiworld's parameter names.
+        The script comes from this site, which allows loading from any origin.
       </p>
       <pre><code>&lt;script type="module"
-  src="https://cdn.jsdelivr.net/npm/epiworldjs/dist/epiworld-model.js"&gt;&lt;/script&gt;
+  src="https://uofuepibio.github.io/epiworldjs/dist/epiworld-model.js"&gt;&lt;/script&gt;
 
 &lt;epiworld-model model="MeaslesSchool" nsims="50"
   params='{"Vaccination rate": 0.8, "Quarantine willingness": 0}'
@@ -127,7 +128,7 @@
         For your own plots, run models directly. Simulations are split across Web Workers,
         and the results are the same for any number of workers.
       </p>
-      <pre><code>import { Epiworld } from "https://cdn.jsdelivr.net/npm/epiworldjs/src/index.js";
+      <pre><code>import { Epiworld } from "https://uofuepibio.github.io/epiworldjs/dist/epiworld-model.js";
 
 const ew = await Epiworld.load();
 const res = await ew.run({
@@ -146,7 +147,7 @@ res.toCSV();     // epiworld's total_hist table</code></pre>
     <footer id="versions">epiworldjs is MIT-licensed.</footer>
   </main>
   <script type="module">
-    import { Epiworld } from "../dist/epiworld-model.js";
+    import { Epiworld } from "./dist/epiworld-model.js";
     const ew = await Epiworld.load({ workers: 0 });
     const v = ew.version();
     document.getElementById("versions").textContent +=

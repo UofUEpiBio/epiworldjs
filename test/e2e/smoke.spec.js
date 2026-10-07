@@ -23,7 +23,7 @@ async function playground(page) {
 test("the playground renders, re-runs when a slider moves, and switches models", async ({ page }) => {
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
-  await page.goto(url(site, "/site/"));
+  await page.goto(url(site, "/"));
   const el = await playground(page);
 
   await expect(el.locator(".legend button")).toHaveText(["Susceptible", "Exposed", "Infected", "Recovered"]);
@@ -51,7 +51,7 @@ test("the playground renders, re-runs when a slider moves, and switches models",
 });
 
 test("Download CSV saves epiworld's total_hist table", async ({ page }) => {
-  await page.goto(url(site, "/site/"));
+  await page.goto(url(site, "/"));
   const el = await playground(page);
   const [download] = await Promise.all([
     page.waitForEvent("download"),

@@ -1,7 +1,8 @@
 // A static file server for the site and the e2e tests (no dependencies).
-// Usage: node test/e2e/serve.mjs [port]  — serves the repository root.
-// Responses allow any origin, like a CDN, so a page on another port can load
-// the package from this one.
+// Usage: node test/e2e/serve.mjs [port]
+// Lays files out as GitHub Pages does: site/ at the root, with dist/ and src/
+// (and test/, for the e2e pages) beside it. Responses allow any origin, like
+// a CDN, so a page on another port can load the package from this one.
 
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
@@ -22,8 +23,9 @@ const types = {
 export function serve(port = 0) {
   const server = createServer(async (req, res) => {
     const path = normalize(decodeURIComponent(new URL(req.url, "http://x").pathname));
-    let file = join(root, path);
-    if (!file.startsWith(root)) return res.writeHead(403).end();
+    const base = /^\/(dist|src|test)\//.test(path) ? root : join(root, "site");
+    let file = join(base, path);
+    if (!file.startsWith(base)) return res.writeHead(403).end();
     if (file.endsWith("/")) file = join(file, "index.html");
     try {
       const body = await readFile(file);
@@ -42,5 +44,5 @@ export function serve(port = 0) {
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const server = await serve(Number(process.argv[2] ?? 8000));
-  console.log(`Serving ${root} at http://127.0.0.1:${server.address().port}/site/`);
+  console.log(`Serving the site at http://127.0.0.1:${server.address().port}/`);
 }

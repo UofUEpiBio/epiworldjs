@@ -17,14 +17,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: make wasm
-      # The site loads ../dist and ../src, so the layout of the repository is kept
+      # site/ at the root, with the package beside it (as test/e2e/serve.mjs
+      # lays it out), so pages and snippets use <root>/dist/epiworld-model.js
       - name: Assemble the site
         run: |
-          mkdir -p _site
-          cp -R site src dist _site/
+          mkdir -p _site/site
+          cp -R site/. _site/
+          cp -R src dist _site/
           cp vendor/epiworld/LICENSE.md _site/LICENSE-epiworld.md
           cp vendor/measles/LICENSE.md _site/LICENSE-measles.md
-          printf '<!doctype html><meta http-equiv="refresh" content="0; url=site/"><a href="site/">epiworldjs</a>\n' > _site/index.html
+          # The playground used to live at /site/
+          printf '<!doctype html><meta http-equiv="refresh" content="0; url=../"><a href="../">epiworldjs</a>\n' > _site/site/index.html
       - uses: actions/upload-pages-artifact@v3
   deploy:
     needs: build
