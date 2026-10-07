@@ -1,11 +1,35 @@
 {
   "name": "epiworldjs",
-  "version": "0.0.0",
-  "description": "Run the epiworld C++ simulation engine in the browser via WebAssembly.",
+  "version": "0.1.0",
+  "description": "Run epiworld's agent-based epidemic models in the browser (and Node) via WebAssembly, with a drop-in <epiworld-model> web component.",
+  "keywords": [
+    "epidemiology",
+    "agent-based model",
+    "simulation",
+    "webassembly",
+    "wasm",
+    "epiworld",
+    "web component",
+    "measles",
+    "sir",
+    "seir"
+  ],
+  "homepage": "https://uofuepibio.github.io/epiworldjs/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/UofUEpiBio/epiworldjs.git"
+  },
+  "bugs": {
+    "url": "https://github.com/UofUEpiBio/epiworldjs/issues"
+  },
+  "author": "George G. Vega Yon (https://github.com/gvegayon)",
+  "license": "MIT",
   "type": "module",
   "exports": {
     ".": "./src/index.js",
-    "./element": "./src/element.js"
+    "./element": "./src/element.js",
+    "./dist/epiworld-model.js": "./dist/epiworld-model.js",
+    "./package.json": "./package.json"
   },
   "files": [
     "src",
@@ -24,7 +48,10 @@
   "engines": {
     "node": ">=20"
   },
-  "license": "MIT",
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "devDependencies": {
     "@playwright/test": "^1.63.0"
   }
