@@ -1,23 +1,11 @@
 # epiworldjs
 
-<<<<<<< Updated upstream
 [![npm](https://img.shields.io/npm/v/epiworldjs)](https://www.npmjs.com/package/epiworldjs)
+[![npm downloads](https://img.shields.io/npm/dm/epiworldjs)](https://www.npmjs.com/package/epiworldjs)
+[![npm total downloads](https://img.shields.io/npm/dt/epiworldjs)](https://www.npmjs.com/package/epiworldjs)
 [![CI](https://github.com/UofUEpiBio/epiworldjs/actions/workflows/ci.yml/badge.svg)](https://github.com/UofUEpiBio/epiworldjs/actions/workflows/ci.yml)
 [![Playground](https://img.shields.io/badge/playground-GitHub%20Pages-0072b2)](https://uofuepibio.github.io/epiworldjs/)
-=======
-[![npm version](https://img.shields.io/npm/v/epiworldjs.svg)](https://www.npmjs.com/package/epiworldjs)
-[![npm downloads](https://img.shields.io/npm/dm/epiworldjs.svg)](https://www.npmjs.com/package/epiworldjs)
-[![npm total downloads](https://img.shields.io/npm/dt/epiworldjs.svg)](https://www.npmjs.com/package/epiworldjs)
-[![license](https://img.shields.io/npm/l/epiworldjs.svg)](LICENSE)
-
-> **Status: pre-alpha.** The engine, the JavaScript API and the
-> `<epiworld-model>` element work; try them in the
-> [playground](https://uofuepibio.github.io/epiworldjs/). The package is on
-> [npm](https://www.npmjs.com/package/epiworldjs), so jsDelivr and unpkg
-> serve it too; the snippets below load it from the GitHub Pages site, which
-> allows any origin. The implementation plan is in [`plan.md`](plan.md).
-> Feedback is welcome in the issues.
->>>>>>> Stashed changes
+[![license](https://img.shields.io/npm/l/epiworldjs)](LICENSE)
 
 **epiworldjs** runs the [epiworld](https://github.com/UofUEpiBio/epiworld)
 agent-based epidemiological simulation engine in the browser (and in Node)
@@ -109,13 +97,8 @@ The same two tags go in a raw HTML block:
 ## The flexible way: a JavaScript API
 
 ```js
-<<<<<<< Updated upstream
 // With npm: import { Epiworld } from "epiworldjs";
 import { Epiworld } from "https://cdn.jsdelivr.net/npm/epiworldjs/dist/epiworld-model.js";
-=======
-// From npm: import { Epiworld } from "epiworldjs";
-import { Epiworld } from "https://uofuepibio.github.io/epiworldjs/dist/epiworld-model.js";
->>>>>>> Stashed changes
 
 const ew = await Epiworld.load();     // starts a pool of Web Workers
 ew.models();                          // metadata for every model: params, defaults, ranges
