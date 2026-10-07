@@ -32,7 +32,7 @@ One script tag, one HTML tag:
   nsims="30"
   n="10000"
   params='{"Contact rate": 4}'
-  controls="Contact rate, Transmission rate">
+  controls="Contact rate, Prob. Transmission">
 </epiworld-model>
 ```
 
@@ -67,7 +67,7 @@ const res = await ew.run({
   ndays: 100,
   nsims: 50,
   seed: 1,
-  params: { "Contact rate": 4, "Transmission rate": 0.1 },
+  params: { "Contact rate": 4, "Prob. Transmission": 0.1 },
   outputs: ["total_hist", "transition", "reproductive"]
 });
 
@@ -75,9 +75,11 @@ res.summary();   // median + 2.5% / 97.5% bands per state and day
 res.toCSV();
 ```
 
-Parameter names are the epiworld names (`"Transmission rate"`,
-`"Contact rate"`, ...), the same ones you use in epiworldR and
-epiworldpy.
+Parameter names are the epiworld names (`"Contact rate"`,
+`"Prob. Transmission"`, ...), the same ones you use in epiworldR and
+epiworldpy. They vary between models (SIRCONN has `"Transmission rate"`,
+SEIRCONN `"Prob. Transmission"`); `ew.models()` lists each model's
+parameters, and an unknown name is an error.
 
 ## Models
 
@@ -114,10 +116,11 @@ vendor/epiworld + vendor/measles  (header-only C++, vendored)
 - **Declarative specs, not bound classes.** JS sends a plain object;
   C++ builds the model, runs it, and returns typed arrays. Specs are easy
   to send to workers, store in URLs, and share.
-- **Results in memory, no files.** Simulations are collected with an
-  in-memory saver (proposed upstream in epiworld; see
-  [UofUEpiBio/epiworld#288](https://github.com/UofUEpiBio/epiworld/issues/288)),
-  the same mechanism epiworldR and epiworldpy can use.
+- **Results in memory, no files.** Simulations are collected with
+  epiworld's `SaverMemory`
+  ([UofUEpiBio/epiworld#290](https://github.com/UofUEpiBio/epiworld/pull/290)),
+  as tables with the same columns as epiworld's CSV files -- the same
+  mechanism epiworldR and epiworldpy can use.
 - **Parallelism without special headers.** Instead of WASM threads (which
   need COOP/COEP headers that GitHub Pages cannot set), simulations are
   split across a pool of Web Workers. Per-simulation seeds are drawn up
@@ -165,13 +168,15 @@ emcc -O3 -std=c++17 -fwasm-exceptions -lembind \
 
 Follow the implementation order in [plan.md](plan.md).
 
-1. epiworld: in-memory savers for `run_multiple` and wasm32 fixes
-   ([epiworld#289](https://github.com/UofUEpiBio/epiworld/pull/289)); must
-   merge before the vendored headers are updated.
-2. Scaffold: vendoring, devcontainer, minimal SIRCONN running in Node.
-   **In progress:** CI runs a native smoke test and Node tests of the
-   WebAssembly build; the headers move to epiworld's release with #289.
-3. Model registry + core for the built-in models; golden tests.
+1. epiworld: in-memory savers for `run_multiple`
+   ([epiworld#290](https://github.com/UofUEpiBio/epiworld/pull/290), merged)
+   and the wasm32 fix in `postsampling-meat.hpp` (pending upstream; the
+   vendored headers already include it).
+2. Scaffold: vendoring, devcontainer, minimal SIRCONN running in Node. Done.
+3. Model registry + core for the built-in models; golden tests. **Done:**
+   all 14 built-in models run through `run(spec)`; CI checks that native
+   (clang/libc++) and WASM builds give byte-identical outputs, and that
+   running the simulations in slices reproduces `run_multiple`.
 4. Measles models.
 5. Worker pool and `Epiworld` JS API.
 6. `<epiworld-model>` and the SVG chart; GitHub Pages playground.

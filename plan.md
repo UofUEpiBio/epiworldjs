@@ -68,7 +68,7 @@ import { Epiworld } from "epiworldjs";
 const ew = await Epiworld.load();            // spins up a worker pool
 ew.models();                                 // registry metadata → build your own UI
 const res = await ew.run({ model: "SEIRCONN", ndays: 100, seed: 1, nsims: 50,
-  params: { "Contact rate": 4, "Transmission rate": 0.1 }, n: 10000, prevalence: 0.01 });
+  params: { "Contact rate": 4, "Prob. Transmission": 0.1 }, n: 10000, prevalence: 0.01 });
 res.days; res.states; res.counts;            // per-sim typed arrays
 res.summary();                               // median + 2.5/97.5% bands per state
 res.toCSV();
@@ -84,7 +84,7 @@ One script tag and one HTML tag, and it works in Quarto, R Markdown, plain HTML 
 ```html
 <script type="module" src="https://cdn.jsdelivr.net/npm/epiworldjs/dist/epiworld-model.js"></script>
 <epiworld-model model="SEIRCONN" ndays="100" nsims="30" n="10000"
-  params='{"Contact rate": 4}' controls="Contact rate, Transmission rate"></epiworld-model>
+  params='{"Contact rate": 4}' controls="Contact rate, Prob. Transmission"></epiworld-model>
 ```
 - It generates sliders from the registry metadata, but only for the parameters listed in `controls`; `controls="all"` shows every parameter.
 - It has a Run button, with auto-run on load (`autorun`) and debounced re-runs as sliders move (`live`).
