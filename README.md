@@ -2,10 +2,11 @@
 
 > **Status: pre-alpha.** The engine, the JavaScript API and the
 > `<epiworld-model>` element work; try them in the
-> [playground](https://uofuepibio.github.io/epiworldjs/). Nothing is on npm
-> yet, so the CDN snippets below do not work until the first release. The
-> implementation plan is in [`plan.md`](plan.md). Feedback is welcome in the
-> issues.
+> [playground](https://uofuepibio.github.io/epiworldjs/). Until the first npm
+> release, the snippets below load the package from the GitHub Pages site,
+> which allows any origin; after it, jsDelivr and unpkg will serve it too.
+> The implementation plan is in [`plan.md`](plan.md). Feedback is welcome in
+> the issues.
 
 **epiworldjs** runs the [epiworld](https://github.com/UofUEpiBio/epiworld)
 agent-based epidemiological simulation engine in the browser by compiling
@@ -27,7 +28,7 @@ One script tag, one HTML tag:
 
 ```html
 <script type="module"
-  src="https://cdn.jsdelivr.net/npm/epiworldjs/dist/epiworld-model.js"></script>
+  src="https://uofuepibio.github.io/epiworldjs/dist/epiworld-model.js"></script>
 
 <epiworld-model
   model="SEIRCONN"
@@ -60,7 +61,8 @@ The `<epiworld-model>` element:
 ### The flexible way: a JavaScript API
 
 ```js
-import { Epiworld } from "epiworldjs";
+// After the npm release: import { Epiworld } from "epiworldjs";
+import { Epiworld } from "https://uofuepibio.github.io/epiworldjs/dist/epiworld-model.js";
 
 const ew = await Epiworld.load();     // starts a pool of Web Workers
 ew.models();                          // metadata for every model: params, defaults, ranges
