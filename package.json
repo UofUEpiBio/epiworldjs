@@ -1,6 +1,6 @@
 {
   "name": "epiworldjs",
-  "version": "0.1.0",
+  "version": "0.18.0-0",
   "description": "Run epiworld's agent-based epidemic models in the browser (and Node) via WebAssembly, with a drop-in <epiworld-model> web component.",
   "keywords": [
     "epidemiology",
