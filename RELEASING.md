@@ -17,6 +17,17 @@ npm reads `X.Y.Z-N` as a pre-release, so the workflow publishes with
 not cross epiworld versions: `^0.18.0-0` matches `0.18.0-1` but not
 `0.19.0-0`.
 
+## When to bump
+
+[please-bump](https://github.com/gvegayon/please-bump) checks every PR
+(`.github/please-bump.yaml`). A PR that changes what ships in the package
+(`src/`, `cpp/`, `vendor/`, `Makefile`, `package.json`) must bump the version
+once the version on `main` has been released (has a GitHub release); several
+PRs can then share the new, unreleased version. `package.json` and
+`package-lock.json` must agree (`npm install --package-lock-only` updates the
+lockfile). A PR can waive the check with the `no-version-bump` label or
+`[please-bump skip]` in its description.
+
 ## Regular releases
 
 1. Bump `version` in `package.json` in a PR, and merge it.
@@ -29,7 +40,8 @@ not cross epiworld versions: `^0.18.0-0` matches `0.18.0-1` but not
 `.github/workflows/publish.yml` checks that the tag matches `package.json`,
 builds the WebAssembly module, runs the native, Node and golden tests, and
 publishes with npm's trusted publishing (no token; the package gets a
-provenance statement). A version that is already on npm is skipped.
+provenance statement), and creates the GitHub release for the tag. A version
+that is already on npm is not published again.
 
 ## One-time setup (done once, by the npm owner)
 
@@ -44,5 +56,6 @@ provenance statement). A version that is already on npm is skipped.
 2. On npmjs.com, open the package's **Settings → Trusted publishing** and add
    a GitHub Actions publisher: organization `UofUEpiBio`, repository
    `epiworldjs`, workflow `publish.yml`, environment `npm`.
-3. Push the `v0.18.0-0` tag; the workflow runs the tests and skips the
-   publish, since 0.18.0-0 is already on npm. Later tags publish on their own.
+3. Push the `v0.18.0-0` tag; the workflow runs the tests, skips the publish
+   (0.18.0-0 is already on npm) and creates the GitHub release. Later tags
+   publish on their own.
