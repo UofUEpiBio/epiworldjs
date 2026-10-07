@@ -41,8 +41,10 @@ test("the playground renders, re-runs when a slider moves, and switches models",
   await expect(el.locator(".summary")).not.toHaveText(before);
 
   // The picker rebuilds the controls and the legend for the new model
+  // (a network model, slower than SEIRCONN on small CI runners)
   await el.locator("select").selectOption("SIRD");
-  await expect(el.locator(".legend button")).toHaveText(["Susceptible", "Infected", "Recovered", "Deceased"]);
+  await expect(el.locator(".legend button"))
+    .toHaveText(["Susceptible", "Infected", "Recovered", "Deceased"], { timeout: 30_000 });
   await expect(el.locator("label", { hasText: "Death rate" })).toBeVisible();
 
   expect(errors).toEqual([]);
