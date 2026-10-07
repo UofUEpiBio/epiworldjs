@@ -22,3 +22,26 @@ jobs:
         run: |
           node build/golden.cjs > build/golden-wasm.txt
           cmp build/golden-native.txt build/golden-wasm.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  # The site and the <epiworld-model> element in Chromium, with the WASM
+  # module built above
+  e2e:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npx playwright test

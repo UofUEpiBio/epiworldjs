@@ -1,8 +1,11 @@
 # epiworldjs
 
-> **Status: planning / pre-alpha.** Nothing here is usable yet. This README
-> describes the design we are building toward; the full implementation plan
-> is in [`plan.md`](plan.md). Feedback is welcome in the issues.
+> **Status: pre-alpha.** The engine, the JavaScript API and the
+> `<epiworld-model>` element work; try them in the
+> [playground](https://uofuepibio.github.io/epiworldjs/). Nothing is on npm
+> yet, so the CDN snippets below do not work until the first release. The
+> implementation plan is in [`plan.md`](plan.md). Feedback is welcome in the
+> issues.
 
 **epiworldjs** runs the [epiworld](https://github.com/UofUEpiBio/epiworld)
 agent-based epidemiological simulation engine in the browser by compiling
@@ -49,6 +52,8 @@ The `<epiworld-model>` element:
   Shiny-like playground) and **Download CSV**;
 - is themeable with CSS custom properties (`--epiworld-color-<state>`,
   fonts), `::part()` selectors, and follows light/dark mode;
+- takes `hide="Susceptible, ..."` for states hidden at first (the legend
+  toggles them);
 - emits an `epiworld-result` event and exposes `.result`, so pages can do
   their own plotting.
 
@@ -183,7 +188,9 @@ Follow the implementation order in [plan.md](plan.md).
 5. Worker pool and `Epiworld` JS API. **Done:** runs are split across
    Web Workers (worker_threads in Node) with identical results for any
    number of workers; `Result` has `summary()` and `toCSV()`.
-6. `<epiworld-model>` and the SVG chart; GitHub Pages playground.
+6. `<epiworld-model>` and the SVG chart; GitHub Pages playground. **Done:**
+   `site/` is deployed to [GitHub Pages](https://uofuepibio.github.io/epiworldjs/);
+   Playwright tests the playground and loading from another origin.
 7. CI, npm publishing, docs with copy-paste HTML and Quarto snippets.
 
 Later: step-by-step runs for animations, custom models defined in JS,

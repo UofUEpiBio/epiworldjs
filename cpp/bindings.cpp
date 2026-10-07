@@ -197,6 +197,8 @@ val list_models() {
             model.set("family", info.family);
             model.set("population", info.population);
             model.set("states", to_js(epiworldjs::state_labels(info)));
+            model.set("n", info.n);
+            model.set("prevalence", info.prevalence);
             model.set("params", params);
             models.call<void>("push", model);
         }

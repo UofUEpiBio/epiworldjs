@@ -82,6 +82,45 @@ export class Result {
   }
 
   /**
+   * Outbreak statistics across simulations, each as a median and a central
+   * interval: the peak number of active cases, the day of that peak, and
+   * the final outbreak size (agents ever infected). Needs the
+   * "active_cases" and "outbreak_size" outputs.
+   *
+   * @param {{level?: number}} [options]
+   */
+  outbreak({ level = 0.95 } = {}) {
+    const active = this.tables.active_cases;
+    const size = this.tables.outbreak_size;
+    if (!active || !size) throw new Error('outbreak() needs the "active_cases" and "outbreak_size" outputs.');
+
+    const n = this.nsims;
+    const peak = new Float64Array(n), peakDay = new Float64Array(n), finalSize = new Float64Array(n);
+    const lastDay = new Float64Array(n).fill(-1);
+    for (let i = 0; i < active.sim_id.length; i++) {
+      const s = active.sim_id[i];
+      if (active.active_cases[i] > peak[s]) {
+        peak[s] = active.active_cases[i];
+        peakDay[s] = active.date[i];
+      }
+    }
+    for (let i = 0; i < size.sim_id.length; i++) {
+      const s = size.sim_id[i];
+      if (size.date[i] >= lastDay[s]) {
+        lastDay[s] = size.date[i];
+        finalSize[s] = size.outbreak_size[i];
+      }
+    }
+
+    const alpha = (1 - level) / 2;
+    const describe = (values) => {
+      const sorted = values.sort();
+      return { median: quantile(sorted, 0.5), lower: quantile(sorted, alpha), upper: quantile(sorted, 1 - alpha) };
+    };
+    return { peak: describe(peak), peakDay: describe(peakDay), finalSize: describe(finalSize) };
+  }
+
+  /**
    * One output table as CSV, with a header row.
    *
    * @param {string} [output] Default `"total_hist"`.
