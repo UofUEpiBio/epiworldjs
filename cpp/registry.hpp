@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "epiworld.hpp"
+#include "measles/measles.hpp"
 
 namespace epiworldjs {
 
@@ -32,6 +33,7 @@ struct BuildArgs {
     std::map<std::string, double> params;
     double prevalence;
     int n;
+    int n_infected; ///< round(prevalence * n), for constructors that take a count
     std::vector<double> contact_matrix; ///< Column-major, as epiworld expects
 
     double operator()(const std::string & name) const { return params.at(name); }
@@ -48,6 +50,15 @@ struct ModelInfo {
     std::string population;
     std::vector<ParamInfo> params;
     std::function<std::unique_ptr<Model>(const BuildArgs &)> build;
+    /// Defaults for the spec fields that are not parameters
+    int n = 10000;
+    double prevalence = 0.01;
+    /// Mixing models: daily contacts between three equal groups, row-major
+    std::vector<double> contact_matrix = {
+        18.0, 1.0, 1.0,
+         2.0, 16.0, 2.0,
+         2.0, 4.0, 14.0
+    };
 };
 
 namespace detail {
@@ -68,6 +79,39 @@ inline ParamInfo contact_rate() {
 }
 
 const char * const virus_name = "Disease";
+
+// The disease and policy parameters the measles models share. `mixing` adds
+// the isolation willingness, which the school model does not have.
+inline std::vector<ParamInfo> measles_disease_and_policy(bool mixing) {
+    std::vector<ParamInfo> out = {
+        prob("Vax efficacy", 0.97, "Probability that the vaccine prevents infection."),
+        prob("Vaccination rate", 1.0 - 1.0 / 15.0, "Proportion of agents vaccinated."),
+        days("Incubation period", 12.0, 1.0, "Average number of days from exposure to the prodromal stage."),
+        days("Prodromal period", 4.0, 1.0, "Average number of days infectious before the rash."),
+        days("Rash period", 3.0, 1.0, "Average number of days with rash."),
+        prob("Hospitalization rate", 0.2, "Probability that an agent with rash is hospitalized."),
+        days("Hospitalization period", 7.0, 1.0, "Average number of days in the hospital."),
+        days("Days undetected", 2.0, 0.0, "Average number of days before a case with rash is detected."),
+        days("Quarantine period", 21.0, -1.0, "Days in quarantine for the contacts of a detected case (negative: no quarantine).", true),
+        prob("Quarantine willingness", 1.0, "Probability that a contact complies with quarantine."),
+        days("Isolation period", 4.0, -1.0, "Days in isolation for a detected case (negative: no isolation).", true),
+    };
+    if (mixing)
+        out.push_back(prob("Isolation willingness", 1.0, "Probability that a detected case complies with isolation."));
+    return out;
+}
+
+// One initial case among three groups of 3000, 15 contacts per day (the
+// examples of the measles R package)
+inline void measles_mixing_defaults(ModelInfo & m) {
+    m.n = 9000;
+    m.prevalence = 1.0 / 9000.0;
+    m.contact_matrix = {
+        13.5, 0.75, 0.75,
+         1.5, 12.0,  1.5,
+         1.5,  3.0, 10.5
+    };
+}
 
 // Defaults follow epiworldRShiny and the epiworldR examples.
 inline std::vector<ModelInfo> make_registry() {
@@ -208,6 +252,95 @@ inline std::vector<ModelInfo> make_registry() {
                     a("Contact tracing success rate"),
                     static_cast<epiworld_fast_uint>(a("Contact tracing days prior")));
             }},
+
+        // Measles (UofUEpiBio/measles); defaults follow its R package
+        [&] {
+            ModelInfo m{"MeaslesSchool", "Measles in a school", "measles", "connected",
+                with({
+                    {"Contact rate", 15.0 / 0.9 / 4.0, 0.0, 100.0, 0.1, false, "Average number of contacts per agent per day."},
+                    prob("Transmission rate", 0.9, "Probability of transmission per contact with an infectious agent."),
+                }, measles_disease_and_policy(false)),
+                [](const BuildArgs & a) {
+                    return std::make_unique<measles::ModelMeaslesSchool<>>(
+                        static_cast<epiworld_fast_uint>(a.n),
+                        static_cast<epiworld_fast_uint>(a.n_infected),
+                        a("Contact rate"), a("Transmission rate"), a("Vax efficacy"),
+                        0.5, // vax_reduction_recovery_rate, ignored by the model
+                        a("Incubation period"), a("Prodromal period"), a("Rash period"),
+                        a("Days undetected"), a("Hospitalization rate"),
+                        a("Hospitalization period"), a("Vaccination rate"),
+                        static_cast<epiworld_fast_int>(a("Quarantine period")),
+                        a("Quarantine willingness"),
+                        static_cast<epiworld_fast_int>(a("Isolation period")));
+                }};
+            // One initial case in a school of 500
+            m.n = 500;
+            m.prevalence = 0.002;
+            return m;
+        }(),
+        [&] {
+            ModelInfo m{"MeaslesMixing", "Measles (mixing)", "measles", "mixing",
+                with(with({prob("Transmission rate", 0.9, "Probability of transmission per contact with an infectious agent.")},
+                    measles_disease_and_policy(true)), {
+                    prob("Contact tracing success rate", 1.0, "Probability that a contact is traced."),
+                    {"Contact tracing days window", 4.0, 0.0, 30.0, 1.0, true, "Days before detection whose contacts are traced."},
+                    prob("Rash reduction contact rate", 1.0, "Multiplier of the contact rate of agents with rash (1: no reduction)."),
+                }),
+                [](const BuildArgs & a) {
+                    return std::make_unique<measles::ModelMeaslesMixing<>>(
+                        static_cast<epiworld_fast_uint>(a.n), a.prevalence,
+                        a("Transmission rate"), a("Vax efficacy"),
+                        0.5, // vax_reduction_recovery_rate, ignored by the model
+                        a("Incubation period"), a("Prodromal period"), a("Rash period"),
+                        a.contact_matrix,
+                        a("Hospitalization rate"), a("Hospitalization period"),
+                        a("Days undetected"),
+                        static_cast<epiworld_fast_int>(a("Quarantine period")),
+                        a("Quarantine willingness"), a("Isolation willingness"),
+                        static_cast<epiworld_fast_int>(a("Isolation period")),
+                        a("Vaccination rate"), a("Contact tracing success rate"),
+                        static_cast<epiworld_fast_uint>(a("Contact tracing days window")),
+                        a("Rash reduction contact rate"));
+                }};
+            measles_mixing_defaults(m);
+            return m;
+        }(),
+        [&] {
+            std::vector<ParamInfo> params = with(
+                {prob("Transmission rate", 0.9, "Probability of transmission per contact with an infectious agent.")},
+                measles_disease_and_policy(true));
+            // Quarantine depends on the contact's risk instead of being one period
+            params.erase(std::remove_if(params.begin(), params.end(),
+                [](const ParamInfo & p) { return p.name == "Quarantine period"; }), params.end());
+            ModelInfo m{"MeaslesMixingRiskQuarantine", "Measles (mixing) with risk-based quarantine", "measles", "mixing",
+                with(params, {
+                    days("Quarantine period high", 21.0, -1.0, "Days in quarantine for high-risk contacts (negative: no quarantine).", true),
+                    days("Quarantine period medium", 14.0, -1.0, "Days in quarantine for medium-risk contacts (negative: no quarantine).", true),
+                    days("Quarantine period low", 7.0, -1.0, "Days in quarantine for low-risk contacts (negative: no quarantine).", true),
+                    prob("Detection rate quarantine", 0.5, "Daily probability that an infected agent in quarantine is detected."),
+                    prob("Contact tracing success rate", 1.0, "Probability that a contact is traced."),
+                    {"Contact tracing days window", 4.0, 0.0, 30.0, 1.0, true, "Days before detection whose contacts are traced."},
+                }),
+                [](const BuildArgs & a) {
+                    return std::make_unique<measles::ModelMeaslesMixingRiskQuarantine<>>(
+                        static_cast<epiworld_fast_uint>(a.n), a.prevalence,
+                        a("Transmission rate"), a("Vax efficacy"),
+                        a("Incubation period"), a("Prodromal period"), a("Rash period"),
+                        a.contact_matrix,
+                        a("Hospitalization rate"), a("Hospitalization period"),
+                        a("Days undetected"),
+                        static_cast<epiworld_fast_int>(a("Quarantine period high")),
+                        static_cast<epiworld_fast_int>(a("Quarantine period medium")),
+                        static_cast<epiworld_fast_int>(a("Quarantine period low")),
+                        a("Quarantine willingness"), a("Isolation willingness"),
+                        static_cast<epiworld_fast_int>(a("Isolation period")),
+                        a("Vaccination rate"), a("Detection rate quarantine"),
+                        a("Contact tracing success rate"),
+                        static_cast<epiworld_fast_uint>(a("Contact tracing days window")));
+                }};
+            measles_mixing_defaults(m);
+            return m;
+        }(),
     };
 }
 

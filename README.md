@@ -177,7 +177,9 @@ Follow the implementation order in [plan.md](plan.md).
    all 14 built-in models run through `run(spec)`; CI checks that native
    (clang/libc++) and WASM builds give byte-identical outputs, and that
    running the simulations in slices reproduces `run_multiple`.
-4. Measles models.
+4. Measles models. **Done:** MeaslesSchool, MeaslesMixing and
+   MeaslesMixingRiskQuarantine, vendored from
+   [measles](https://github.com/UofUEpiBio/measles) (MIT).
 5. Worker pool and `Epiworld` JS API.
 6. `<epiworld-model>` and the SVG chart; GitHub Pages playground.
 7. CI, npm publishing, docs with copy-paste HTML and Quarto snippets.

@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -33,15 +34,13 @@ struct Population {
 struct RunSpec {
     std::string model;
     std::map<std::string, double> params; ///< Unset parameters take their defaults
-    double prevalence = 0.01;
+    std::optional<double> prevalence; ///< Initial proportion infected; unset = model default
     int ndays = 100;
     int nsims = 1;
     int seed = 1;
     Population population;
     std::vector<std::string> outputs = {"total_hist"}; ///< Names from `run_output_names()`
 };
-
-constexpr int default_n = 10000;
 
 namespace detail {
 
@@ -105,7 +104,7 @@ inline Population resolve_population(const ModelInfo & info, const RunSpec & spe
         require(pop.type == "smallworld" || pop.type == "edgelist",
             "Model " + info.id + " needs a population of type \"smallworld\" or \"edgelist\".");
         if (pop.n < 0)
-            pop.n = default_n;
+            pop.n = info.n;
         require(pop.n > 0, "n must be greater than 0.");
         if (pop.type == "smallworld") {
             require(pop.k >= 0 && pop.k < pop.n, "k must be between 0 and n - 1.");
@@ -124,7 +123,7 @@ inline Population resolve_population(const ModelInfo & info, const RunSpec & spe
         require(pop.type == "connected",
             "Model " + info.id + " is fully mixed; it takes only n, not a population of type \"" + pop.type + "\".");
         if (pop.n < 0)
-            pop.n = default_n;
+            pop.n = info.n;
         require(pop.n > 0, "n must be greater than 0.");
     } else { // mixing
         if (pop.type.empty())
@@ -132,15 +131,13 @@ inline Population resolve_population(const ModelInfo & info, const RunSpec & spe
         require(pop.type == "groups",
             "Model " + info.id + " needs a population of type \"groups\".");
         if (pop.sizes.empty() && pop.contact_matrix.empty()) {
-            // Three groups with 20 contacts per day (the epiworldR example)
-            int n = pop.n < 0 ? default_n - default_n % 3 : pop.n;
-            require(n >= 3, "n must be at least 3 for the default groups.");
-            pop.sizes = {n / 3, n / 3, n - 2 * (n / 3)};
-            pop.contact_matrix = {
-                18.0, 1.0, 1.0,
-                 2.0, 16.0, 2.0,
-                 2.0, 4.0, 14.0
-            };
+            // The model's default matrix, with n split evenly between groups
+            const int groups = static_cast<int>(std::lround(std::sqrt(info.contact_matrix.size())));
+            const int n = pop.n < 0 ? info.n : pop.n;
+            require(n >= groups, "n must be at least " + std::to_string(groups) + " for the default groups.");
+            pop.sizes.assign(static_cast<size_t>(groups), n / groups);
+            pop.sizes.back() += n % groups;
+            pop.contact_matrix = info.contact_matrix;
         }
         size_t g = pop.sizes.size();
         require(g > 0, "sizes must have at least one group.");
@@ -180,7 +177,8 @@ inline std::unique_ptr<Model> build_model(const RunSpec & spec) {
     using detail::require;
     const ModelInfo & info = find_model(spec.model);
 
-    detail::require_in(spec.prevalence, 0.0, 1.0, "prevalence");
+    const double prevalence = spec.prevalence.value_or(info.prevalence);
+    detail::require_in(prevalence, 0.0, 1.0, "prevalence");
     require(spec.ndays >= 0, "ndays must be greater than or equal to 0.");
     require(spec.nsims >= 1, "nsims must be at least 1.");
     // epiworld ignores negative seeds, so they would silently not seed the run
@@ -189,9 +187,10 @@ inline std::unique_ptr<Model> build_model(const RunSpec & spec) {
 
     BuildArgs args;
     args.params = resolve_params(info, spec);
-    args.prevalence = spec.prevalence;
+    args.prevalence = prevalence;
     Population pop = resolve_population(info, spec);
     args.n = pop.n;
+    args.n_infected = static_cast<int>(std::lround(prevalence * pop.n));
 
     // Row-major (as users write it) to column-major (as epiworld reads it)
     size_t g = pop.sizes.size();

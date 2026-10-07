@@ -173,7 +173,7 @@ epiworldjs/
 1. **epiworld:** fix `include/epiworld/postsampling-meat.hpp:31` to compare as `uint64_t`, e.g. `static_cast<uint64_t>(population.size()) >= (uint64_t(1) << 32)`. Then regenerate `./epiworld.hpp` with `make build/epiworld.hpp`. It doesn't change results on 64-bit, so no version bump is needed. Fix any other wasm32 warnings the first `emcc -Wall` build turns up the same way.
 2. **epiworld:** add `.github/workflows/wasm.yml`. It compiles one example and a few tests with `emcc` and runs them under Node, so epiworld stays WASM-clean without anyone having to remember to check.
 3. **measles:** apply the same wasm32 fixes if the build turns any up.
-4. **Before publishing to npm**, confirm the measles repo's license. GitHub reports `NOASSERTION`, so it's unclear whether its headers can ship inside an MIT npm package. Get the maintainers' sign-off or add a LICENSE.
+4. ~~Confirm the measles repo's license.~~ It is MIT (in R's `MIT + file LICENSE` form, which GitHub reports as "Other"); `make update-measles` copies its `LICENSE.md` next to the vendored headers.
 
 ## Implementation order
 0. **epiworld PR:** upstream change A (savers for `run_multiple`, [#288](https://github.com/UofUEpiBio/epiworld/issues/288)), plus the wasm32 fix (upstream change 1), on a branch off `master`. This PR lands before epiworldjs vendors the headers.

@@ -31,7 +31,7 @@ function loadModule() {
  * @typedef {object} ModelInfo
  * @property {string} id For example `"SEIRCONN"`.
  * @property {string} label
- * @property {string} family `"basic"`, `"connected"` or `"mixing"`.
+ * @property {string} family `"basic"`, `"connected"`, `"mixing"` or `"measles"`.
  * @property {string} population `"network"`, `"connected"` or `"mixing"`.
  * @property {string[]} states State labels, in epiworld's order.
  * @property {ParamInfo[]} params
@@ -40,8 +40,11 @@ function loadModule() {
  * @property {string} model A model id from `models()`.
  * @property {Object<string, number>} [params] By epiworld name; unset ones
  *   take their defaults.
- * @property {number} [n] Number of agents (default 10000).
- * @property {number} [prevalence] Initial proportion infected (default 0.01).
+ * @property {number} [n] Number of agents (the model's default: 10000 for
+ *   most models, 500 for MeaslesSchool, 9000 for the measles mixing models).
+ * @property {number} [prevalence] Initial proportion infected (the model's
+ *   default: 0.01 for most, one case for the measles models). MeaslesSchool
+ *   starts with round(prevalence * n) cases.
  * @property {number} [ndays] Default 100.
  * @property {number} [nsims] Default 1.
  * @property {number} [seed] Default 1.
@@ -79,7 +82,7 @@ export class Core {
     return this.module.outputNames();
   }
 
-  /** @returns {{epiworld: string}} */
+  /** @returns {{epiworld: string, measles: string}} */
   version() {
     return this.module.version();
   }

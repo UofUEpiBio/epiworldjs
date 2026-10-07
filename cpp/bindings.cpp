@@ -213,6 +213,7 @@ val version() {
     out.set("epiworld", std::to_string(EPIWORLD_VERSION_MAJOR) + "." +
         std::to_string(EPIWORLD_VERSION_MINOR) + "." + std::to_string(EPIWORLD_VERSION_PATCH) +
         EPIWORLD_VERSION_PRERELEASE);
+    out.set("measles", measles_version());
     return out;
 }
 
