@@ -1,0 +1,64 @@
+name: Publish
+# Publishes to npm when a version tag (v0.18.0-0, ...) is pushed. Uses npm's
+# trusted publishing: no token is stored; npm trusts this workflow through
+# GitHub's OIDC, and the package gets a provenance statement.
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: emscripten/emsdk:3.1.74
+    steps:
+      - uses: actions/checkout@v4
+      - name: The tag matches package.json
+        run: |
+          version=$(node -p 'require("./package.json").version')
+          test "v$version" = "$GITHUB_REF_NAME" || {
+            echo "Tag $GITHUB_REF_NAME does not match package.json version $version"; exit 1; }
+      # Same packages as .devcontainer/Dockerfile
+      - run: |
+          apt-get update
+          apt-get install -y --no-install-recommends clang libc++-dev libc++abi-dev
+      - run: make check-version test-native wasm build/golden-native.txt build/golden.cjs
+      # Run from the shell: make cannot exec node in this container
+      - run: node --test test/*.test.js
+      - run: |
+          node build/golden.cjs > build/golden-wasm.txt
+          cmp build/golden-native.txt build/golden-wasm.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      # Trusted publishing needs npm 11.5.1 or later
+      - run: npm install -g npm@latest
+      # A version already on npm (e.g. published by hand) is not published again
+      - name: Publish
+        run: |
+          version=$(node -p 'require("./package.json").version')
+          if npm view "epiworldjs@$version" version >/dev/null 2>&1; then
+            echo "epiworldjs@$version is already on npm; nothing to do."
+          else
+            # X.Y.Z-N is a pre-release to npm, which requires a tag for it
+            npm publish --tag latest
+          fi

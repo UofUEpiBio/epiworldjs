@@ -15,7 +15,7 @@ jobs:
       - run: |
           apt-get update
           apt-get install -y --no-install-recommends clang libc++-dev libc++abi-dev
-      - run: make test-native wasm build/golden-native.txt build/golden.cjs
+      - run: make check-version test-native wasm build/golden-native.txt build/golden.cjs
       # Run from the shell: make cannot exec node in this container
       - run: node --test test/*.test.js
       - name: Golden (native and WASM outputs must be identical)

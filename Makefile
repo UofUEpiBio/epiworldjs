@@ -22,7 +22,7 @@ MEASLES_REF ?= main
 
 HEADERS := cpp/core.hpp cpp/registry.hpp $(shell find vendor -name '*.hpp')
 
-.PHONY: test test-native test-wasm e2e golden wasm clean update-vendors update-epiworld update-measles
+.PHONY: test test-native test-wasm e2e golden wasm clean check-version update-vendors update-epiworld update-measles
 
 test: test-native test-wasm golden
 
@@ -35,6 +35,16 @@ test-wasm: dist/core.js
 # The site and the element in a browser (PW_CHANNEL=chrome: installed Chrome)
 e2e: wasm
 	npx playwright test
+
+# Versions are epiworld's X.Y.Z plus -N for this package (as in epiworldR
+# and epiworldpy): package.json's X.Y.Z must be the vendored epiworld's
+check-version:
+	@epiworld=$$(awk '/^#define EPIWORLD_VERSION_(MAJOR|MINOR|PATCH) /{v = v (v == "" ? "" : ".") $$3} END{print v}' vendor/epiworld/epiworld.hpp); \
+	package=$$(sed -n 's/^  "version": "\(.*\)",$$/\1/p' package.json); \
+	case "$$package" in \
+	  "$$epiworld"-[0-9]*) echo "epiworldjs $$package (epiworld $$epiworld)" ;; \
+	  *) echo "package.json version $$package must be $$epiworld-N (vendored epiworld $$epiworld)"; exit 1 ;; \
+	esac
 
 # Native and WASM must print identical outputs for the same specs
 golden: build/golden-native.txt build/golden-wasm.txt
