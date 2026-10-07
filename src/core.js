@@ -38,6 +38,8 @@ function loadModule() {
  * @property {string} family `"basic"`, `"connected"`, `"mixing"` or `"measles"`.
  * @property {string} population `"network"`, `"connected"` or `"mixing"`.
  * @property {string[]} states State labels, in epiworld's order.
+ * @property {number} n Default number of agents.
+ * @property {number} prevalence Default initial prevalence.
  * @property {ParamInfo[]} params
  *
  * @typedef {object} RunSpec

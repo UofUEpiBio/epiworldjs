@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <link rel="icon" href="data:,">
+  <title>Cross-origin load</title>
+</head>
+<body>
+  <!-- Loads the package from the origin in ?src=, as a page using a CDN would -->
+  <epiworld-model model="SIRCONN" nsims="8" n="2000" autorun></epiworld-model>
+  <script type="module">
+    const src = new URLSearchParams(location.search).get("src");
+    await import(src);
+  </script>
+</body>
+</html>

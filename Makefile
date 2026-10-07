@@ -22,7 +22,7 @@ MEASLES_REF ?= main
 
 HEADERS := cpp/core.hpp cpp/registry.hpp $(shell find vendor -name '*.hpp')
 
-.PHONY: test test-native test-wasm golden wasm clean update-vendors update-epiworld update-measles
+.PHONY: test test-native test-wasm e2e golden wasm clean update-vendors update-epiworld update-measles
 
 test: test-native test-wasm golden
 
@@ -32,11 +32,20 @@ test-native: build/smoke
 test-wasm: dist/core.js
 	$(NODE) --test test/*.test.js
 
+# The site and the element in a browser (PW_CHANNEL=chrome: installed Chrome)
+e2e: wasm
+	npx playwright test
+
 # Native and WASM must print identical outputs for the same specs
 golden: build/golden-native.txt build/golden-wasm.txt
 	cmp build/golden-native.txt build/golden-wasm.txt
 
-wasm: dist/core.js
+wasm: dist/core.js dist/epiworld-model.js
+
+# The one-script-tag entry point: registers <epiworld-model>
+dist/epiworld-model.js: src/element.js
+	@mkdir -p $(@D)
+	printf '// Registers <epiworld-model>; see src/element.js.\nexport * from "../src/element.js";\nexport * from "../src/index.js";\n' > $@
 
 build/smoke: cpp/smoke.cpp $(HEADERS)
 	@mkdir -p $(@D)

@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>epiworldjs</title>
+  <link rel="icon" href="data:,">
+  <meta name="description" content="Run epiworld's agent-based epidemic models in the browser, with WebAssembly.">
+  <style>
+    :root {
+      --bg: #fbfbf9;
+      --surface: #ffffff;
+      --text: #1d1d1b;
+      --muted: #5f5f5a;
+      --border: #e3e2dc;
+      --code-bg: #f2f1ec;
+      --accent: #0072b2;
+      color-scheme: light;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        --bg: #141413;
+        --surface: #1c1c1a;
+        --text: #ecebe6;
+        --muted: #a5a49d;
+        --border: #34332f;
+        --code-bg: #252522;
+        --accent: #56b4e9;
+        color-scheme: dark;
+      }
+    }
+    :root[data-theme="dark"] {
+      --bg: #141413; --surface: #1c1c1a; --text: #ecebe6; --muted: #a5a49d;
+      --border: #34332f; --code-bg: #252522; --accent: #56b4e9; color-scheme: dark;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif;
+    }
+    main { max-width: 1040px; margin: 0 auto; padding: 32px 16px 64px; }
+    header { margin-bottom: 32px; }
+    h1 { font-size: 2rem; margin: 0 0 4px; letter-spacing: -0.01em; }
+    h2 { font-size: 1.3rem; margin: 48px 0 8px; }
+    p { margin: 0 0 12px; max-width: 70ch; }
+    .lead { color: var(--muted); font-size: 1.1rem; }
+    a { color: var(--accent); }
+    nav { display: flex; gap: 16px; flex-wrap: wrap; font-size: 0.95rem; }
+    epiworld-model {
+      --epiworld-surface: var(--surface);
+      --epiworld-text: var(--text);
+      --epiworld-accent: var(--accent);
+      margin: 16px 0;
+    }
+    pre {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 14px;
+      overflow-x: auto;
+      font-size: 0.85rem;
+      line-height: 1.5;
+    }
+    code { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+    .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+    footer { margin-top: 48px; color: var(--muted); font-size: 0.85rem; }
+  </style>
+  <script type="module" src="../dist/epiworld-model.js"></script>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>epiworldjs</h1>
+      <p class="lead">
+        Agent-based epidemic models from
+        <a href="https://github.com/UofUEpiBio/epiworld">epiworld</a>, running in your
+        browser with WebAssembly. No server: each simulation runs on this page.
+      </p>
+      <nav>
+        <a href="https://github.com/UofUEpiBio/epiworldjs">GitHub</a>
+        <a href="#embed">Embed a model</a>
+        <a href="#api">JavaScript API</a>
+      </nav>
+    </header>
+
+    <section id="playground">
+      <h2>Playground</h2>
+      <p>
+        Pick any of the 17 models and move the sliders; the model re-runs as you go.
+        Lines are medians across simulations, and bands cover 95% of them.
+        Click a state in the legend to hide it.
+      </p>
+      <epiworld-model id="playground-model" model="SEIRCONN" nsims="20" n="10000"
+        model-picker autorun live></epiworld-model>
+    </section>
+
+    <section id="embed">
+      <h2>Embed a model</h2>
+      <p>
+        One script tag and one element, in plain HTML, Quarto, R Markdown, or a CMS.
+        <code>controls</code> chooses which sliders to show, by epiworld's parameter names.
+      </p>
+      <pre><code>&lt;script type="module"
+  src="https://cdn.jsdelivr.net/npm/epiworldjs/dist/epiworld-model.js"&gt;&lt;/script&gt;
+
+&lt;epiworld-model model="MeaslesSchool" nsims="50"
+  params='{"Vaccination rate": 0.8, "Quarantine willingness": 0}'
+  controls="Vaccination rate, Quarantine willingness"
+  hide="Susceptible, Recovered, Quarantined Susceptible, Quarantined Recovered, Isolated Recovered"
+  autorun live&gt;&lt;/epiworld-model&gt;</code></pre>
+      <epiworld-model model="MeaslesSchool" nsims="50"
+        params='{"Vaccination rate": 0.8, "Quarantine willingness": 0}'
+        controls="Vaccination rate, Quarantine willingness"
+        hide="Susceptible, Recovered, Quarantined Susceptible, Quarantined Recovered, Isolated Recovered"
+        autorun live></epiworld-model>
+      <p>
+        A school of 500 with one measles case. Without quarantine, an outbreak takes off;
+        move <em>Quarantine willingness</em> up and watch the outbreak size fall.
+      </p>
+    </section>
+
+    <section id="api">
+      <h2>JavaScript API</h2>
+      <p>
+        For your own plots, run models directly. Simulations are split across Web Workers,
+        and the results are the same for any number of workers.
+      </p>
+      <pre><code>import { Epiworld } from "https://cdn.jsdelivr.net/npm/epiworldjs/src/index.js";
+
+const ew = await Epiworld.load();
+const res = await ew.run({
+  model: "SIRCONN", n: 10000, ndays: 100, nsims: 50, seed: 1,
+  params: { "Contact rate": 4, "Transmission rate": 0.1 },
+});
+
+res.summary();   // median and 95% band per state and day
+res.toCSV();     // epiworld's total_hist table</code></pre>
+      <p>
+        Every element also fires an <code>epiworld-result</code> event with the
+        <code>Result</code>, so pages can react to runs.
+      </p>
+    </section>
+
+    <footer id="versions">epiworldjs is MIT-licensed.</footer>
+  </main>
+  <script type="module">
+    import { Epiworld } from "../dist/epiworld-model.js";
+    const ew = await Epiworld.load({ workers: 0 });
+    const v = ew.version();
+    document.getElementById("versions").textContent +=
+      ` Running epiworld ${v.epiworld} and measles ${v.measles}.`;
+  </script>
+</body>
+</html>

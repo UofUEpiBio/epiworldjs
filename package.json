@@ -3,15 +3,29 @@
   "version": "0.0.0",
   "description": "Run the epiworld C++ simulation engine in the browser via WebAssembly.",
   "type": "module",
-  "exports": "./src/index.js",
-  "files": ["src", "dist", "README.md", "LICENSE"],
+  "exports": {
+    ".": "./src/index.js",
+    "./element": "./src/element.js"
+  },
+  "files": [
+    "src",
+    "dist",
+    "vendor/epiworld/LICENSE.md",
+    "vendor/measles/LICENSE.md",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "make wasm",
-    "test": "make test"
+    "test": "make test",
+    "e2e": "playwright test",
+    "serve": "node test/e2e/serve.mjs"
   },
   "engines": {
     "node": ">=20"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "@playwright/test": "^1.63.0"
+  }
 }
-
