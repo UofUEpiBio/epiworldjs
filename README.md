@@ -180,7 +180,9 @@ Follow the implementation order in [plan.md](plan.md).
 4. Measles models. **Done:** MeaslesSchool, MeaslesMixing and
    MeaslesMixingRiskQuarantine, vendored from
    [measles](https://github.com/UofUEpiBio/measles) (MIT).
-5. Worker pool and `Epiworld` JS API.
+5. Worker pool and `Epiworld` JS API. **Done:** runs are split across
+   Web Workers (worker_threads in Node) with identical results for any
+   number of workers; `Result` has `summary()` and `toCSV()`.
 6. `<epiworld-model>` and the SVG chart; GitHub Pages playground.
 7. CI, npm publishing, docs with copy-paste HTML and Quarto snippets.
 
