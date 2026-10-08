@@ -33,7 +33,8 @@ for (const model of core.models()) {
   // In SIS models the infected become susceptible again
   const immunity = model.states.some((s) => s === "Recovered" || s === "Removed");
 
-  // Upstream bug: ModelSISD sets a death probability of 0.01, not "Death rate"
+  // ModelSISD sets a death probability of 0.01, not "Death rate":
+  // https://github.com/UofUEpiBio/epiworld/issues/301
   const todo = model.id === "SISD" && "epiworld's SISD ignores \"Death rate\"";
 
   test(`${model.id} behaves as the model says`, { todo }, () => {
