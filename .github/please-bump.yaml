@@ -5,6 +5,9 @@ groups:
     paths:
       - src/
       - cpp/
+      # The native test programs; "!" excludes (quoted, as YAML reads ! as a tag)
+      - "!cpp/golden.cpp"
+      - "!cpp/smoke.cpp"
       - vendor/
       - Makefile
       - package.json
