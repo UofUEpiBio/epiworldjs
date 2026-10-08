@@ -52,6 +52,24 @@ int main() {
                 std::fprintf(stderr, "%s: %d agents on row %zu\n", info.id.c_str(), total, i);
             CHECK(total == 300);
         }
+
+        // Each parameter reaches the model under its name, so the positional
+        // constructor arguments are in the right order. Values spread over
+        // each range, different for every parameter, make swaps visible.
+        for (size_t i = 0; i < info.params.size(); ++i) {
+            const auto & p = info.params[i];
+            double value = p.min + (p.max - p.min) * (i + 1.0) / (info.params.size() + 1.0);
+            spec.params[p.name] = p.integer ? std::floor(value) : value;
+        }
+        auto model = epiworldjs::build_model(spec);
+        // epiworld stores parameters as epiworld_double (float)
+        for (const auto & [name, x] : spec.params) {
+            const auto value = static_cast<epiworld_double>(x);
+            if (model->par(name) != value)
+                std::fprintf(stderr, "%s: \"%s\" is %g, not %g\n", info.id.c_str(),
+                    name.c_str(), model->par(name), value);
+            CHECK(model->par(name) == value);
+        }
     }
 
     // Invalid specs are rejected with a message naming the problem
