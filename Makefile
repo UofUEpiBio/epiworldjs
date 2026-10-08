@@ -29,7 +29,7 @@ test: test-native test-wasm golden
 test-native: build/smoke
 	./build/smoke
 
-test-wasm: dist/core.js
+test-wasm: dist/core.js build/golden-native.txt
 	$(NODE) --test test/*.test.js
 
 # The site and the element in a browser (PW_CHANNEL=chrome: installed Chrome)
