@@ -33,11 +33,7 @@ for (const model of core.models()) {
   // In SIS models the infected become susceptible again
   const immunity = model.states.some((s) => s === "Recovered" || s === "Removed");
 
-  // ModelSISD sets a death probability of 0.01, not "Death rate":
-  // https://github.com/UofUEpiBio/epiworld/issues/301
-  const todo = model.id === "SISD" && "epiworld's SISD ignores \"Death rate\"";
-
-  test(`${model.id} behaves as the model says`, { todo }, () => {
+  test(`${model.id} behaves as the model says`, () => {
     // No transmission, no new infections
     assert.ok(up(uninfected(run(model, { [transmission]: 0 }))), "infections without transmission");
 
@@ -49,9 +45,6 @@ for (const model of core.models()) {
     if (immunity) assert.ok(down(u), "agents became uninfected again");
     for (const s of ["Recovered", "Removed", "Deceased"])
       if (c[s]) assert.ok(up(c[s]), `${s} went down`);
-
-    if (has("Death rate"))
-      assert.ok(zero(run(model, { "Death rate": 0 }), "Deceased"), "deaths with a death rate of 0");
 
     if (has("Hospitalization rate")) {
       const c = run(model, { "Hospitalization rate": 0 });
@@ -72,4 +65,13 @@ for (const model of core.models()) {
       assert.ok(up(uninfected(v)), "infections with everyone immune");
     }
   });
+
+  // ModelSISD sets a death probability of 0.01, not "Death rate":
+  // https://github.com/UofUEpiBio/epiworld/issues/301
+  const todo = model.id === "SISD" && "epiworld's SISD ignores \"Death rate\"";
+
+  if (has("Death rate"))
+    test(`${model.id} has no deaths with a death rate of 0`, { todo }, () => {
+      assert.ok(zero(run(model, { "Death rate": 0 }), "Deceased"));
+    });
 }
