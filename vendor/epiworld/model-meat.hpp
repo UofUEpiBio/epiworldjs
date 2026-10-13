@@ -482,7 +482,12 @@ inline epiworld_double Model<TSeq>::susceptibility_reduction_mixer(
 {
     epiworld_double total = 1.0;
     for (auto & tool : p->get_tools())
+    {
+        if (!(tool->target_mask & v->lineage_bit))
+            continue;
+
         total *= (1.0 - tool->get_susceptibility_reduction(v, this));
+    }
 
     return 1.0 - total;
 
@@ -496,7 +501,12 @@ inline epiworld_double Model<TSeq>::transmission_reduction_mixer(
 {
     epiworld_double total = 1.0;
     for (auto & tool : p->get_tools())
+    {
+        if (!(tool->target_mask & v->lineage_bit))
+            continue;
+
         total *= (1.0 - tool->get_transmission_reduction(v, this));
+    }
 
     return (1.0 - total);
 
@@ -510,7 +520,12 @@ inline epiworld_double Model<TSeq>::recovery_enhancer_mixer(
 {
     epiworld_double total = 1.0;
     for (auto & tool : p->get_tools())
+    {
+        if (!(tool->target_mask & v->lineage_bit))
+            continue;
+
         total *= (1.0 - tool->get_recovery_enhancer(v, this));
+    }
 
     return 1.0 - total;
 
@@ -525,6 +540,9 @@ inline epiworld_double Model<TSeq>::death_reduction_mixer(
     epiworld_double total = 1.0;
     for (auto & tool : p->get_tools())
     {
+        if (!(tool->target_mask & v->lineage_bit))
+            continue;
+
         total *= (1.0 - tool->get_death_reduction(v, this));
     }
 
@@ -1096,7 +1114,7 @@ inline void Model<TSeq>::add_virus(
             );
 
     // Recording the variant
-    db.record_virus(v);
+    db.record_virus(v, true);
 
     // Adding new virus
     auto cloned = v.clone_ptr();
@@ -1197,65 +1215,6 @@ inline void Model<TSeq>::rm_tool(size_t tool_pos)
 
 template<typename TSeq>
 inline void Model<TSeq>::load_agents_entities_ties(
-    std::string fn,
-    int skip
-    )
-{
-
-
-    int i,j;
-    std::ifstream filei(fn);
-
-    if (!filei)
-        throw std::logic_error("The file " + fn + " was not found.");
-
-    int linenum = 0;
-    std::vector< std::vector< epiworld_fast_uint > > target_(entities.size());
-
-    target_.reserve(1e5);
-
-    while (!filei.eof())
-    {
-
-        if (linenum++ < skip)
-            continue;
-
-        filei >> i >> j;
-
-        // Looking for exceptions
-        if (filei.bad())
-            throw std::logic_error(
-                "I/O error while reading the file " +
-                fn
-            );
-
-        if (filei.fail())
-            break;
-
-        if (i >= static_cast<int>(this->size()))
-            throw std::range_error(
-                "The agent["+std::to_string(linenum)+"] = " + std::to_string(i) +
-                " is above the max id " + std::to_string(this->size() - 1)
-                );
-
-        if (j >= static_cast<int>(this->entities.size()))
-            throw std::range_error(
-                "The entity["+std::to_string(linenum)+"] = " + std::to_string(j) +
-                " is above the max id " + std::to_string(this->entities.size() - 1)
-                );
-
-        target_[j].push_back(i);
-
-        population[i].add_entity(*this, entities[j]);
-
-    }
-
-    return;
-
-}
-
-template<typename TSeq>
-inline void Model<TSeq>::load_agents_entities_ties(
     const std::vector< int > & agents_ids,
     const std::vector< int > & entities_ids
 ) {
@@ -1295,6 +1254,7 @@ inline void Model<TSeq>::load_agents_entities_ties(
         return *(entities_ids + i);
         };
 
+    std::vector< std::vector< size_t > > ties(entities.size());
     for (size_t i = 0u; i < n; ++i)
     {
 
@@ -1340,11 +1300,34 @@ inline void Model<TSeq>::load_agents_entities_ties(
                 std::string(").")
                 );
 
-        // Adding the entity to the agent
-        this->population[get_agent(i)].add_entity(
-            *this,
-            this->entities[get_entity(i)]
+        ties[get_entity(i)].push_back(static_cast< size_t >(get_agent(i)));
+
+    }
+
+    // The ties become part of each entity's distribution: reset() clears every
+    // tie before a run, and the distribution adds them back.
+    for (size_t j = 0u; j < ties.size(); ++j)
+    {
+
+        if (ties[j].empty())
+            continue;
+
+        auto agents = std::make_shared< const std::vector< size_t > >(
+            std::move(ties[j])
         );
+
+        auto previous = entities[j].dist_fun;
+        entities[j].dist_fun = [previous, agents](
+            Entity<TSeq> & e, Model<TSeq> * m
+        ) -> void {
+
+            if (previous)
+                previous(e, m);
+
+            for (auto i : *agents)
+                e.add_agent(&m->get_agent(i), *m);
+
+        };
 
     }
 
@@ -1845,29 +1828,6 @@ inline Model<TSeq> & Model<TSeq>::run_multiple(
     }
 
 
-    // Figuring out how many replicates - distribute remainder evenly
-    std::vector< size_t > nreplicates(nthreads, 0);
-    std::vector< size_t > nreplicates_csum(nthreads, 0);
-
-    size_t base_replicates = nexperiments / nthreads;
-    size_t remainder = nexperiments % nthreads;
-
-    size_t sums = 0u;
-    for (int i = 0; i < nthreads; ++i)
-    {
-        // Distribute remainder to first 'remainder' threads
-        nreplicates[i] = base_replicates + (static_cast<size_t>(i) < remainder ? 1 : 0);
-
-        // This takes the cumsum
-        nreplicates_csum[i] = sums;
-        sums += nreplicates[i];
-    }
-
-    Progress pb_multiple(
-        nreplicates[0u],
-        EPIWORLD_PROGRESS_BAR_WIDTH
-        );
-
     if (verbose)
     {
 
@@ -1876,8 +1836,6 @@ inline Model<TSeq> & Model<TSeq>::run_multiple(
             static_cast<int>(nexperiments),
             static_cast<int>(nthreads)
         );
-
-        pb_multiple.start();
 
     }
 
@@ -1896,15 +1854,40 @@ inline Model<TSeq> & Model<TSeq>::run_multiple(
     }
     #endif
 
-    #pragma omp parallel shared(these) \
-        firstprivate(nexperiments, nthreads, fun, reset, verbose, pb_multiple, \
-        ndays, nreplicates, nreplicates_csum, seeds_n) default(none)
+    // Replicates run by this model (thread 0), which counts them itself
+    size_t nreplicates_this = 0u;
+
+    #pragma omp parallel shared(these, nreplicates_this) \
+        firstprivate(nexperiments, fun, reset, verbose, ndays, seeds_n) \
+        default(none)
     {
 
+        // The replicates are split over the team OpenMP actually provides,
+        // which can be smaller than nthreads (OMP_THREAD_LIMIT, OMP_DYNAMIC,
+        // nested parallel regions, etc.): each thread runs a contiguous block
+        // of run ids, the remainder going to the first threads.
         auto iam = static_cast<size_t>(omp_get_thread_num());
+        auto nteam = static_cast<size_t>(omp_get_num_threads());
         Model<TSeq> * model_ptr = iam == 0 ? this : &(*these[iam - 1u]);
-        size_t my_replicates = nreplicates[iam];
-        size_t my_replicates_csum = nreplicates_csum[iam];
+
+        size_t base_replicates = nexperiments / nteam;
+        size_t remainder = nexperiments % nteam;
+        size_t my_replicates = base_replicates + (iam < remainder ? 1u : 0u);
+        size_t my_replicates_csum =
+            iam * base_replicates + std::min(iam, remainder);
+
+        // Only the first thread reports progress, on its own replicates
+        Progress pb_multiple(my_replicates, EPIWORLD_PROGRESS_BAR_WIDTH);
+
+        if (iam == 0)
+        {
+
+            nreplicates_this = my_replicates;
+
+            if (verbose)
+                pb_multiple.start();
+
+        }
 
         for (size_t n = 0u; n < my_replicates; ++n)
         {
@@ -1950,7 +1933,7 @@ inline Model<TSeq> & Model<TSeq>::run_multiple(
     }
 
     // Adjusting the number of replicates
-    n_replicates += (nexperiments - nreplicates[0u]);
+    n_replicates += (nexperiments - nreplicates_this);
 
     #else
 

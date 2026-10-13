@@ -38,7 +38,7 @@ npm install epiworldjs
 ```
 
 To pin a version, add it to the URL:
-`https://cdn.jsdelivr.net/npm/epiworldjs@0.18.0-0/dist/epiworld-model.js`.
+`https://cdn.jsdelivr.net/npm/epiworldjs@0.19.0-0/dist/epiworld-model.js`.
 unpkg works too (`https://unpkg.com/epiworldjs/dist/epiworld-model.js`).
 
 ## The easy way: a web component
