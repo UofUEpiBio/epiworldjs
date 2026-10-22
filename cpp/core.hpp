@@ -202,15 +202,15 @@ inline std::unique_ptr<Model> build_model(const RunSpec & spec) {
     auto model = info.build(args);
     model->verbose_off();
 
-    // Seeded so that the random network depends only on the spec
-    model->seed(static_cast<size_t>(spec.seed));
-
+    // A small-world network is drawn again for every simulation, from its seed;
+    // an edge list is the same in all of them.
     if (pop.type == "smallworld") {
-        model->agents_smallworld(
-            static_cast<epiworld_fast_uint>(pop.n), static_cast<epiworld_fast_uint>(pop.k),
-            pop.directed, pop.p);
+        model->add_layer(epiworld::layer::network<>("network",
+            epiworld::graph::smallworld<>(static_cast<epiworld_fast_uint>(pop.k),
+                pop.p, pop.directed)));
     } else if (pop.type == "edgelist") {
-        model->agents_from_edgelist(pop.source, pop.target, pop.n, pop.directed);
+        model->add_layer(epiworld::layer::network<>("network",
+            epiworld::AdjList(pop.source, pop.target, pop.n, pop.directed)));
     } else if (pop.type == "groups") {
         int from = 0;
         for (size_t i = 0; i < g; ++i) {
@@ -253,7 +253,6 @@ inline epiworld::RunOutputs run_many(const RunSpec & spec, std::vector<int> sim_
         detail::require(id >= 0 && id < spec.nsims,
             "Simulation ids must be between 0 and nsims - 1.");
 
-    model->set_backup();
     epiworld::SaverMemory saver(spec.outputs);
     // Unlike run_multiple(), this leaves the model's sim_id alone (setting it
     // is protected); epiworld only uses it to tell runs apart, and run()

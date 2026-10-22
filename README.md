@@ -180,8 +180,8 @@ vendor/epiworld + vendor/measles  (header-only C++, vendored)
 ### Repository layout
 
 ```
-vendor/epiworld/   copy of epiworld's include/epiworld/   (make update-epiworld)
-vendor/measles/    copy of measles' inst/include/measles/ (make update-measles)
+vendor/epiworld/   copy of epiworld's include/epiworld/   (make update-vendors)
+vendor/measles/    copy of epiworld's include/measles/    (same commit)
 vendor/VERSIONS    source commit SHAs and versions
 cpp/               registry.hpp, core.hpp, bindings.cpp, golden.cpp
 src/               index.js, worker.js, core.js, result.js, element.js, chart.js

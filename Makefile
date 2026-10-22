@@ -16,13 +16,11 @@ EMBINDFLAGS := $(EMFLAGS) -lembind \
 	-sALLOW_MEMORY_GROWTH -sEXPORT_NAME=createEpiworldModule
 
 EPIWORLD_REPO ?= https://github.com/UofUEpiBio/epiworld.git
-EPIWORLD_REF ?= master
-MEASLES_REPO ?= https://github.com/UofUEpiBio/measles.git
-MEASLES_REF ?= main
+EPIWORLD_REF ?= v1-layers
 
 HEADERS := cpp/core.hpp cpp/registry.hpp $(shell find vendor -name '*.hpp')
 
-.PHONY: test test-native test-wasm e2e golden wasm clean check-version update-vendors update-epiworld update-measles
+.PHONY: test test-native test-wasm e2e golden wasm clean check-version update-vendors
 
 test: test-native test-wasm golden
 
@@ -101,10 +99,10 @@ define vendor
 	mv vendor/VERSIONS.tmp vendor/VERSIONS
 endef
 
-update-vendors: update-epiworld update-measles
-
-update-epiworld:
+# epiworld and the measles models come from the same epiworld commit
+update-vendors:
 	$(call vendor,epiworld,$(EPIWORLD_REPO),$(EPIWORLD_REF),include/epiworld)
-
-update-measles:
-	$(call vendor,measles,$(MEASLES_REPO),$(MEASLES_REF),inst/include/measles)
+	rm -rf vendor/measles
+	cp -R build/epiworld-src/include/measles vendor/measles
+	rm -f vendor/measles/*.mmd
+	cp build/epiworld-src/LICENSE.md vendor/measles/LICENSE.md
