@@ -21,7 +21,8 @@ for (const block of golden.split(/^# /m).slice(1)) {
     assert.deepEqual(Object.keys(out).sort(), spec.outputs.slice().sort());
 
     for (const output of outputs) {
-      const [name, colnames, ...rows] = output.trimEnd().split("\n");
+      // Only newlines: a row can end in an empty cell (e.g., no layer)
+      const [name, colnames, ...rows] = output.replace(/\n+$/, "").split("\n");
       const table = out[name];
       const columns = colnames.split("\t");
       assert.deepEqual(Object.keys(table), columns, name);

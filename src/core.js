@@ -54,7 +54,8 @@ function loadModule() {
  * @property {number} [ndays] Default 100.
  * @property {number} [nsims] Default 1.
  * @property {number} [seed] Default 1.
- * @property {object} [population] `{type: "smallworld", k, p, directed}`,
+ * @property {object} [population] `{type: "smallworld", k, p, directed}`
+ *   (a new network for every simulation, drawn from its seed),
  *   `{type: "edgelist", source, target, directed}` (network models), or
  *   `{type: "groups", sizes, contact_matrix}` (mixing models; the matrix as
  *   rows, entry [i][j] = daily contacts of group i with group j).

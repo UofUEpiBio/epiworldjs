@@ -149,32 +149,38 @@ inline std::vector<ModelInfo> make_registry() {
     return {
         {"SIR", "SIR", "basic", "network", {transmission_net, recovery},
             [](const BuildArgs & a) {
-                return std::make_unique<ModelSIR<>>(virus_name, a.prevalence,
+                return std::make_unique<ModelSIR<>>(virus_name,
+                    static_cast<epiworld_fast_uint>(a.n), a.prevalence,
                     a("Transmission rate"), a("Recovery rate"));
             }},
         {"SIS", "SIS", "basic", "network", {transmission_net, recovery},
             [](const BuildArgs & a) {
-                return std::make_unique<ModelSIS<>>(virus_name, a.prevalence,
+                return std::make_unique<ModelSIS<>>(virus_name,
+                    static_cast<epiworld_fast_uint>(a.n), a.prevalence,
                     a("Transmission rate"), a("Recovery rate"));
             }},
         {"SEIR", "SEIR", "basic", "network", {transmission_net, incubation, recovery},
             [](const BuildArgs & a) {
-                return std::make_unique<ModelSEIR<>>(virus_name, a.prevalence,
+                return std::make_unique<ModelSEIR<>>(virus_name,
+                    static_cast<epiworld_fast_uint>(a.n), a.prevalence,
                     a("Transmission rate"), a("Incubation days"), a("Recovery rate"));
             }},
         {"SIRD", "SIRD", "basic", "network", {transmission_net, recovery, death},
             [](const BuildArgs & a) {
-                return std::make_unique<ModelSIRD<>>(virus_name, a.prevalence,
+                return std::make_unique<ModelSIRD<>>(virus_name,
+                    static_cast<epiworld_fast_uint>(a.n), a.prevalence,
                     a("Transmission rate"), a("Recovery rate"), a("Death rate"));
             }},
         {"SISD", "SISD", "basic", "network", {transmission_net, recovery, death},
             [](const BuildArgs & a) {
-                return std::make_unique<ModelSISD<>>(virus_name, a.prevalence,
+                return std::make_unique<ModelSISD<>>(virus_name,
+                    static_cast<epiworld_fast_uint>(a.n), a.prevalence,
                     a("Transmission rate"), a("Recovery rate"), a("Death rate"));
             }},
         {"SEIRD", "SEIRD", "basic", "network", {transmission_net, incubation, recovery, death},
             [](const BuildArgs & a) {
-                return std::make_unique<ModelSEIRD<>>(virus_name, a.prevalence,
+                return std::make_unique<ModelSEIRD<>>(virus_name,
+                    static_cast<epiworld_fast_uint>(a.n), a.prevalence,
                     a("Transmission rate"), a("Incubation days"), a("Recovery rate"),
                     a("Death rate"));
             }},
@@ -242,7 +248,7 @@ inline std::vector<ModelInfo> make_registry() {
             with({p_transmission, avg_incubation, p_recovery}, quarantine),
             [](const BuildArgs & a) {
                 return std::make_unique<ModelSEIRNetworkQuarantine<>>(virus_name,
-                    a.prevalence, a("Prob. Transmission"), a("Avg. Incubation days"),
+                    static_cast<epiworld_fast_uint>(a.n), a.prevalence, a("Prob. Transmission"), a("Avg. Incubation days"),
                     a("Prob. Recovery"),
                     a("Hospitalization rate"), a("Hospitalization period"),
                     a("Days undetected"),
