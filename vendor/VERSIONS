@@ -1,2 +1,2 @@
 # Vendored header-only dependencies, written by `make update-vendors`.
-epiworld https://github.com/UofUEpiBio/epiworld.git 842bc5eca143d2584dc48053aa44e92811791a0d
+epiworld https://github.com/UofUEpiBio/epiworld.git 49ea96d7fc7fb1ecf31592a8594483df16b85f3d
