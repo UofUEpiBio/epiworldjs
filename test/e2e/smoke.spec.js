@@ -26,7 +26,7 @@ test("the playground renders, re-runs when a slider moves, and switches models",
   await page.goto(url(site, "/"));
   const el = await playground(page);
 
-  await expect(el.locator(".legend button")).toHaveText(["Susceptible", "Exposed", "Infected", "Recovered"]);
+  await expect(el.locator(".legend button")).toHaveText(["Susceptible", "Exposed", "Infected", "Removed"]);
   await expect(el.locator(".summary")).toContainText("Peak active cases");
   const before = await el.locator(".summary").textContent();
 

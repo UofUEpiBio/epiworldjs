@@ -136,7 +136,7 @@
 const ew = await Epiworld.load();
 const res = await ew.run({
   model: "SIRCONN", n: 10000, ndays: 100, nsims: 50, seed: 1,
-  params: { "Contact rate": 4, "Transmission rate": 0.1 },
+  params: { "Contact rate": 4, "Transmission probability": 0.1 },
 });
 
 res.summary();   // median and 95% band per state and day

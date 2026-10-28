@@ -19,7 +19,7 @@ test("models() lists every model with its parameters and states", () => {
   );
 
   const seirconn = models.find((m) => m.id === "SEIRCONN");
-  assert.deepEqual(seirconn.states, ["Susceptible", "Exposed", "Infected", "Recovered"]);
+  assert.deepEqual(seirconn.states, ["Susceptible", "Exposed", "Infected", "Removed"]);
   assert.deepEqual(seirconn.params[0], {
     name: "Contact rate", value: 4, min: 0, max: 100, step: 0.1, integer: false,
     description: "Average number of contacts per agent per day.",
@@ -96,8 +96,8 @@ test("invalid specs throw an Error naming the problem", () => {
 
   fails({ ...ok, model: "SIRX" }, /Unknown model "SIRX"/);
   fails({ ...ok, params: { "Contact Rate": 2 } }, /Unknown parameter "Contact Rate" for model SIRCONN/);
-  fails({ ...ok, params: { "Transmission rate": 2 } }, /"Transmission rate" must be between 0 and 1/);
-  fails({ ...ok, params: { "Transmission rate": "0.1" } }, /"Transmission rate" must be a number/);
+  fails({ ...ok, params: { "Transmission probability": 2 } }, /"Transmission probability" must be between 0 and 1/);
+  fails({ ...ok, params: { "Transmission probability": "0.1" } }, /"Transmission probability" must be a number/);
   fails({ ...ok, ndays: 1.5 }, /ndays must be an integer/);
   fails({ ...ok, seed: 3e9 }, /seed must be an integer/);
   fails({ ...ok, seed: -1 }, /seed must be greater/);

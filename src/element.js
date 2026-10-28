@@ -2,7 +2,7 @@
  * <epiworld-model>: an epiworld model with controls and a chart, in one tag.
  *
  *   <epiworld-model model="SEIRCONN" ndays="100" nsims="30" n="10000"
- *     params='{"Contact rate": 4}' controls="Contact rate, Prob. Transmission"
+ *     params='{"Contact rate": 4}' controls="Contact rate, Transmission probability"
  *     autorun live></epiworld-model>
  *
  * Attributes
