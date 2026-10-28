@@ -137,8 +137,8 @@ epiworld's built-in models and the
 | Mixing (groups + contact matrix) | SIRMixing, SEIRMixing, SEIRMixingQuarantine |
 | Network + quarantine | SEIRNetworkQuarantine |
 
-Since epiworld 1.0.0 a model is a disease and its contacts come from layers,
-so these ids are presets: the random-mixing ones are epiworld's SIR, SEIR,
+Since epiworld 1.0.0 a model's states describe the course of infection and its
+layers describe who meets whom, so these ids are presets: the random-mixing ones are epiworld's SIR, SEIR,
 SIRD and SEIRD models with a one-group mixing layer whose contacts are the
 "Contact rate" parameter; the mixing ones add a mixing layer over the groups;
 both quarantine presets build `ModelSEIRQuarantine`, on a mixing layer or on
