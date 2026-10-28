@@ -40,8 +40,8 @@ test("more workers than simulations, and concurrent runs", async () => {
 test("errors in workers reject with the core's message", async () => {
   const ew = await Epiworld.load({ workers: 2 });
   try {
-    await assert.rejects(ew.run({ ...spec, params: { "Prob. Transmission": 2 } }),
-      /"Prob. Transmission" must be between 0 and 1/);
+    await assert.rejects(ew.run({ ...spec, params: { "Transmission probability": 2 } }),
+      /"Transmission probability" must be between 0 and 1/);
     await assert.rejects(ew.run({ model: "SIRX" }), /Unknown model "SIRX"/);
     await assert.rejects(ew.run({ ...spec, nsims: 0 }), /nsims must be at least 1/);
     // The pool still works afterwards
@@ -56,7 +56,7 @@ test("summary() gives the median and a 95% band per state and day", async () => 
   try {
     const res = await ew.run(spec);
     const s = res.summary();
-    assert.deepEqual(s.states, ["Susceptible", "Exposed", "Infected", "Recovered"]);
+    assert.deepEqual(s.states, ["Susceptible", "Exposed", "Infected", "Removed"]);
     assert.equal(s.dates.length, spec.ndays + 1);
 
     // Checked against the per-simulation counts of one state and day

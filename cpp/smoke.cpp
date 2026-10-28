@@ -80,7 +80,7 @@ int main() {
 
     CHECK(throws(with([](RunSpec & s) { s.model = "SIRX"; }), "Unknown model \"SIRX\""));
     CHECK(throws(with([](RunSpec & s) { s.params["Contact Rate"] = 2; }), "Unknown parameter \"Contact Rate\""));
-    CHECK(throws(with([](RunSpec & s) { s.params["Transmission rate"] = 1.5; }), "\"Transmission rate\" must be between 0 and 1"));
+    CHECK(throws(with([](RunSpec & s) { s.params["Transmission probability"] = 1.5; }), "\"Transmission probability\" must be between 0 and 1"));
     CHECK(throws(with([](RunSpec & s) { s.params["Recovery rate"] = std::nan(""); }), "\"Recovery rate\" must be between"));
     CHECK(throws(with([](RunSpec & s) { s.prevalence = -0.1; }), "prevalence must be between 0 and 1"));
     CHECK(throws(with([](RunSpec & s) { s.population.n = 0; }), "n must be greater than 0"));

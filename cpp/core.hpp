@@ -199,6 +199,8 @@ inline std::unique_ptr<Model> build_model(const RunSpec & spec) {
         for (size_t j = 0; j < g; ++j)
             args.contact_matrix[j * g + i] = pop.contact_matrix[i * g + j];
 
+    args.sizes = pop.sizes;
+
     auto model = info.build(args);
     model->verbose_off();
 
@@ -211,13 +213,6 @@ inline std::unique_ptr<Model> build_model(const RunSpec & spec) {
     } else if (pop.type == "edgelist") {
         model->add_layer(epiworld::layer::network<>("network",
             epiworld::AdjList(pop.source, pop.target, pop.n, pop.directed)));
-    } else if (pop.type == "groups") {
-        int from = 0;
-        for (size_t i = 0; i < g; ++i) {
-            model->add_entity(epiworld::Entity<>("Group " + std::to_string(i + 1),
-                epiworld::distribute_entity_to_range<>(from, from + pop.sizes[i])));
-            from += pop.sizes[i];
-        }
     }
 
     return model;

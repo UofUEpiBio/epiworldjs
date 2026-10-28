@@ -55,7 +55,7 @@ One script tag, one HTML tag:
   nsims="30"
   n="10000"
   params='{"Contact rate": 4}'
-  controls="Contact rate, Prob. Transmission"
+  controls="Contact rate, Transmission probability"
   autorun live>
 </epiworld-model>
 ```
@@ -110,7 +110,7 @@ const res = await ew.run({
   ndays: 100,
   nsims: 50,
   seed: 1,
-  params: { "Contact rate": 4, "Prob. Transmission": 0.1 },
+  params: { "Contact rate": 4, "Transmission probability": 0.1 },
   outputs: ["total_hist", "transition", "reproductive"]
 });
 
@@ -121,10 +121,9 @@ res.toCSV();     // any output table, with epiworld's CSV columns
 The same code runs in Node (20+), where the workers are `worker_threads`.
 
 Parameter names are the epiworld names (`"Contact rate"`,
-`"Prob. Transmission"`, ...), the same ones you use in epiworldR and
-epiworldpy. They vary between models (SIRCONN has `"Transmission rate"`,
-SEIRCONN `"Prob. Transmission"`); `ew.models()` lists each model's
-parameters, and an unknown name is an error.
+`"Transmission probability"`, `"Latent period"`, ...), the same ones you use in
+epiworldR and epiworldpy; `ew.models()` lists each model's parameters, and an
+unknown name is an error.
 
 ## Models
 
@@ -134,9 +133,16 @@ epiworld's built-in models and the
 | Family | Models |
 |---|---|
 | Basic (network) | SIR, SIS, SEIR, SIRD, SISD, SEIRD |
-| Connected (fully mixed) | SIRCONN, SEIRCONN, SIRDCONN, SEIRDCONN |
+| Random mixing ("Contact rate" a day) | SIRCONN, SEIRCONN, SIRDCONN, SEIRDCONN |
 | Mixing (groups + contact matrix) | SIRMixing, SEIRMixing, SEIRMixingQuarantine |
 | Network + quarantine | SEIRNetworkQuarantine |
+
+Since epiworld 1.0.0 a model is a disease and its contacts come from layers,
+so these ids are presets: the random-mixing ones are epiworld's SIR, SEIR,
+SIRD and SEIRD models with a one-group mixing layer whose contacts are the
+"Contact rate" parameter; the mixing ones add a mixing layer over the groups;
+both quarantine presets build `ModelSEIRQuarantine`, on a mixing layer or on
+the network.
 | Measles | MeaslesSchool, MeaslesMixing, MeaslesMixingRiskQuarantine |
 
 Populations can be a small-world network, a user-supplied edge list, or
