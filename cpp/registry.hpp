@@ -44,7 +44,7 @@ struct BuildArgs {
 /// - "network": a small-world network or an edge list, added after the model;
 /// - "connected": random mixing, only `n` (the builder adds the layer);
 /// - "mixing": groups of given sizes and a contact matrix (the builder adds
-///   the layer, or the entities for the measles models).
+///   the layer).
 struct ModelInfo {
     std::string id;
     std::string label;
@@ -118,19 +118,6 @@ inline std::unique_ptr<Model> seir_quarantine(const BuildArgs & a) {
         static_cast<epiworld_fast_int>(a("Isolation period")),
         a("Contact tracing probability"),
         static_cast<epiworld_fast_uint>(a("Contact tracing window")));
-}
-
-// The measles mixing models still take their groups from entities (until the
-// measles models move to layers)
-template<typename M>
-inline std::unique_ptr<Model> with_entities(std::unique_ptr<M> model, const BuildArgs & a) {
-    int from = 0;
-    for (size_t i = 0; i < a.sizes.size(); ++i) {
-        model->add_entity(epiworld::Entity<>("Group " + std::to_string(i + 1),
-            epiworld::distribute_entity_to_range<>(from, from + a.sizes[i])));
-        from += a.sizes[i];
-    }
-    return model;
 }
 
 // The disease and policy parameters the measles models share. `mixing` adds
@@ -319,12 +306,11 @@ inline std::vector<ModelInfo> make_registry() {
                     prob("Rash reduction contact rate", 1.0, "Multiplier of the contact rate of agents with rash (1: no reduction)."),
                 }),
                 [](const BuildArgs & a) {
-                    return with_entities(std::make_unique<measles::ModelMeaslesMixing<>>(
+                    return group_mixing(std::make_unique<measles::ModelMeaslesMixing<>>(
                         static_cast<epiworld_fast_uint>(a.n), a.prevalence,
                         a("Transmission rate"), a("Vax efficacy"),
                         0.5, // vax_reduction_recovery_rate, ignored by the model
                         a("Incubation period"), a("Prodromal period"), a("Rash period"),
-                        a.contact_matrix,
                         a("Hospitalization rate"), a("Hospitalization period"),
                         a("Days undetected"),
                         static_cast<epiworld_fast_int>(a("Quarantine period")),
@@ -354,11 +340,10 @@ inline std::vector<ModelInfo> make_registry() {
                     {"Contact tracing days window", 4.0, 0.0, 30.0, 1.0, true, "Days before detection whose contacts are traced."},
                 }),
                 [](const BuildArgs & a) {
-                    return with_entities(std::make_unique<measles::ModelMeaslesMixingRiskQuarantine<>>(
+                    return group_mixing(std::make_unique<measles::ModelMeaslesMixingRiskQuarantine<>>(
                         static_cast<epiworld_fast_uint>(a.n), a.prevalence,
                         a("Transmission rate"), a("Vax efficacy"),
                         a("Incubation period"), a("Prodromal period"), a("Rash period"),
-                        a.contact_matrix,
                         a("Hospitalization rate"), a("Hospitalization period"),
                         a("Days undetected"),
                         static_cast<epiworld_fast_int>(a("Quarantine period high")),
