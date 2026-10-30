@@ -86,10 +86,13 @@ inline std::vector<ParamInfo> measles_disease_and_policy(bool mixing) {
     std::vector<ParamInfo> out = {
         prob("Vax efficacy", 0.97, "Probability that the vaccine prevents infection."),
         prob("Vaccination rate", 1.0 - 1.0 / 15.0, "Proportion of agents vaccinated."),
-        days("Incubation period", 12.0, 1.0, "Average number of days from exposure to the prodromal stage."),
-        days("Prodromal period", 4.0, 1.0, "Average number of days infectious before the rash."),
-        days("Rash period", 3.0, 1.0, "Average number of days with rash."),
-        prob("Hospitalization rate", 0.2, "Probability that an agent with rash is hospitalized."),
+        days("Incubation period", 12.0, 1.0, "Mean number of days from exposure to the prodromal stage."),
+        days("Prodromal period", 4.0, 1.0, "Mean number of days infectious before the rash."),
+        days("Rash period", 3.0, 1.0, "Mean number of days with rash."),
+        days("Incubation period sd", 2.5, 0.0, "Standard deviation of the (lognormal) incubation period, in days; 0 gives a fixed period."),
+        days("Prodromal period sd", 1.7, 0.0, "Standard deviation of the (lognormal) prodromal period, in days; 0 gives a fixed period."),
+        days("Rash period sd", 1.0, 0.0, "Standard deviation of the (lognormal) rash period, in days; 0 gives a fixed period."),
+        prob("Hospitalization rate", 0.035, "Daily probability that an agent with rash is hospitalized (0.035: about 10% of cases)."),
         days("Hospitalization period", 7.0, 1.0, "Average number of days in the hospital."),
         days("Days undetected", 2.0, 0.0, "Average number of days before a case with rash is detected."),
         days("Quarantine period", 21.0, -1.0, "Days in quarantine for the contacts of a detected case (negative: no quarantine).", true),
@@ -271,7 +274,9 @@ inline std::vector<ModelInfo> make_registry() {
                         a("Hospitalization period"), a("Vaccination rate"),
                         static_cast<epiworld_fast_int>(a("Quarantine period")),
                         a("Quarantine willingness"),
-                        static_cast<epiworld_fast_int>(a("Isolation period")));
+                        static_cast<epiworld_fast_int>(a("Isolation period")),
+                        a("Incubation period sd"), a("Prodromal period sd"),
+                        a("Rash period sd"));
                 }};
             // One initial case in a school of 500
             m.n = 500;
@@ -300,7 +305,9 @@ inline std::vector<ModelInfo> make_registry() {
                         static_cast<epiworld_fast_int>(a("Isolation period")),
                         a("Vaccination rate"), a("Contact tracing success rate"),
                         static_cast<epiworld_fast_uint>(a("Contact tracing days window")),
-                        a("Rash reduction contact rate"));
+                        a("Rash reduction contact rate"),
+                        a("Incubation period sd"), a("Prodromal period sd"),
+                        a("Rash period sd"));
                 }};
             measles_mixing_defaults(m);
             return m;
@@ -336,7 +343,9 @@ inline std::vector<ModelInfo> make_registry() {
                         static_cast<epiworld_fast_int>(a("Isolation period")),
                         a("Vaccination rate"), a("Detection rate quarantine"),
                         a("Contact tracing success rate"),
-                        static_cast<epiworld_fast_uint>(a("Contact tracing days window")));
+                        static_cast<epiworld_fast_uint>(a("Contact tracing days window")),
+                        a("Incubation period sd"), a("Prodromal period sd"),
+                        a("Rash period sd"));
                 }};
             measles_mixing_defaults(m);
             return m;
