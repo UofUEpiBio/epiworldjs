@@ -24,11 +24,18 @@ function loadModule() {
 
 /**
  * @typedef {object} ParamInfo
- * @property {string} name epiworld's name for the parameter.
+ * The core's description of a model argument (epiworld's `ParamInfo`), plus
+ * a slider's step and span.
+ * @property {string} arg The argument's name, which a spec's `params` use
+ *   (e.g. `"transmission_prob"`), as in epiworldR and epiworldpy.
+ * @property {string} name The model parameter it sets (e.g.
+ *   `"Transmission probability"`), a label for a control.
  * @property {number} value Default value.
- * @property {number} min
- * @property {number} max
+ * @property {number} min Hard limit.
+ * @property {number} max Hard limit (may be `Infinity`).
  * @property {number} step Suggested slider step.
+ * @property {number} sliderMax Suggested slider end (`max` when finite and at
+ *   most 1).
  * @property {boolean} integer
  * @property {string} description
  *
@@ -37,15 +44,20 @@ function loadModule() {
  * @property {string} label
  * @property {string} family `"basic"`, `"connected"`, `"mixing"` or `"measles"`.
  * @property {string} population `"network"`, `"connected"` or `"mixing"`.
- * @property {string[]} states State labels, in epiworld's order.
+ * @property {string} model The model of epiworld's registry it runs (e.g.
+ *   `"SEIR"` for `"SEIRCONN"`, which adds a random-mixing layer).
+ * @property {string[]} stages The stages of its natural history, in
+ *   epiworld's order (the `stage` column of the outputs).
+ * @property {string[]} statuses Its statuses (`["Free"]` when it has none),
+ *   in epiworld's order (the `status` column of the outputs).
  * @property {number} n Default number of agents.
  * @property {number} prevalence Default initial prevalence.
  * @property {ParamInfo[]} params
  *
  * @typedef {object} RunSpec
  * @property {string} model A model id from `models()`.
- * @property {Object<string, number>} [params] By epiworld name; unset ones
- *   take their defaults.
+ * @property {Object<string, number>} [params] By argument name
+ *   (`ParamInfo.arg`); unset ones take their defaults.
  * @property {number} [n] Number of agents (the model's default: 10000 for
  *   most models, 500 for MeaslesSchool, 9000 for the measles mixing models).
  * @property {number} [prevalence] Initial proportion infected (the model's
@@ -80,7 +92,12 @@ export class Core {
 
   /** @returns {ModelInfo[]} */
   models() {
-    this._models ??= this.module.listModels();
+    this._models ??= this.module.listModels().map((model) =>
+      Object.defineProperty(model, "states", {
+        get() {
+          throw new Error("ModelInfo.states was removed: an agent's state is now a status and a stage; use stages and statuses.");
+        },
+      }));
     return this._models;
   }
 

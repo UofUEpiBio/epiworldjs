@@ -6,7 +6,7 @@ import { Epiworld } from "../src/index.js";
 
 const core = await Core.load();
 
-test("models() lists every model with its parameters and states", () => {
+test("models() lists every model with its arguments, stages and statuses", () => {
   const models = core.models();
   assert.deepEqual(
     models.map((m) => m.id),
@@ -18,12 +18,26 @@ test("models() lists every model with its parameters and states", () => {
     ],
   );
 
+  // A preset of the core's SEIR: its arguments, then the random-mixing layer's
   const seirconn = models.find((m) => m.id === "SEIRCONN");
-  assert.deepEqual(seirconn.states, ["Susceptible", "Exposed", "Infected", "Removed"]);
-  assert.deepEqual(seirconn.params[0], {
-    name: "Contact rate", value: 4, min: 0, max: 100, step: 0.1, integer: false,
-    description: "Average number of contacts per agent per day.",
+  assert.equal(seirconn.model, "SEIR");
+  assert.deepEqual(seirconn.stages, ["Susceptible", "Exposed", "Infected", "Removed"]);
+  assert.deepEqual(seirconn.statuses, ["Free"]);
+  assert.deepEqual(seirconn.params.map((p) => p.arg),
+    ["transmission_prob", "latent_period", "recovery_rate", "contact_rate"]);
+  assert.deepEqual(seirconn.params[1], {
+    arg: "latent_period", name: "Latent period", value: 7, min: 0, max: Infinity,
+    step: 0.5, sliderMax: 60, integer: false,
+    description: "Mean days in the exposed state (infected, not yet infectious).",
   });
+  // The preset's default
+  assert.equal(seirconn.params[0].value, 0.1);
+
+  const quarantine = models.find((m) => m.id === "SEIRMixingQuarantine");
+  assert.equal(quarantine.model, "SEIRQuarantine");
+  assert.deepEqual(quarantine.statuses, ["Free", "Quarantined", "Isolated", "Hospitalized"]);
+
+  assert.throws(() => seirconn.states, /states was removed.*use stages and statuses/);
 });
 
 for (const model of core.models()) {
@@ -31,13 +45,15 @@ for (const model of core.models()) {
     const n = 500, ndays = 20, nsims = 2;
     const { total_hist: t } = core.run({ model: model.id, n, ndays, nsims });
 
-    assert.deepEqual(Object.keys(t), ["sim_id", "date", "nviruses", "state", "counts"]);
+    assert.deepEqual(Object.keys(t), ["sim_id", "date", "nviruses", "status", "stage", "counts"]);
     assert.ok(t.counts instanceof Int32Array);
-    const k = model.states.length;
+    // One row per status and stage a day
+    const k = model.stages.length * model.statuses.length;
     assert.equal(t.counts.length, nsims * (ndays + 1) * k);
 
     for (let i = 0; i < t.counts.length; i += k) {
-      assert.deepEqual(t.state.slice(i, i + k), model.states);
+      assert.deepEqual([...new Set(t.stage.slice(i, i + k))].sort(), [...model.stages].sort());
+      assert.deepEqual([...new Set(t.status.slice(i, i + k))].sort(), [...model.statuses].sort());
       let total = 0;
       for (let s = 0; s < k; s++) total += t.counts[i + s];
       assert.equal(total, n, `day ${t.date[i]} of sim ${t.sim_id[i]}`);
@@ -96,8 +112,10 @@ test("invalid specs throw an Error naming the problem", () => {
 
   fails({ ...ok, model: "SIRX" }, /Unknown model "SIRX"/);
   fails({ ...ok, params: { "Contact Rate": 2 } }, /Unknown parameter "Contact Rate" for model SIRCONN/);
-  fails({ ...ok, params: { "Transmission probability": 2 } }, /"Transmission probability" must be between 0 and 1/);
-  fails({ ...ok, params: { "Transmission probability": "0.1" } }, /"Transmission probability" must be a number/);
+  fails({ ...ok, params: { transmission_prob: 2 } }, /"transmission_prob" must be between 0 and 1/);
+  fails({ ...ok, params: { transmission_prob: "0.1" } }, /"transmission_prob" must be a number/);
+  // Parameters were named by the model parameter; the error names the argument
+  fails({ ...ok, params: { "Transmission probability": 0.1 } }, /"Transmission probability" is now "transmission_prob"/);
   fails({ ...ok, ndays: 1.5 }, /ndays must be an integer/);
   fails({ ...ok, seed: 3e9 }, /seed must be an integer/);
   fails({ ...ok, seed: -1 }, /seed must be greater/);
@@ -114,8 +132,8 @@ test("measles models use their own defaults", () => {
   assert.equal(total, 500);
 
   // One initial case: the agents outside "Susceptible" on day 0
-  const susceptible = school.counts[school.state.indexOf("Susceptible")];
-  assert.ok(total - susceptible >= 1);
+  const susceptible = school.counts.reduce((sum, c, i) => sum + (school.stage[i] === "Susceptible" ? c : 0), 0);
+  assert.equal(total - susceptible, 1);
 
   const mixing = core.run({ model: "MeaslesMixing", ndays: 0 }).total_hist;
   assert.equal(mixing.counts.reduce((a, b) => a + b), 9000);

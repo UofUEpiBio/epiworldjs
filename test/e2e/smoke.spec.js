@@ -60,8 +60,8 @@ test("Download CSV saves epiworld's total_hist table", async ({ page }) => {
   expect(download.suggestedFilename()).toBe("SEIRCONN.csv");
   const csv = await (await download.createReadStream()).toArray();
   const lines = Buffer.concat(csv).toString().trimEnd().split("\n");
-  expect(lines[0]).toBe("sim_id,date,nviruses,state,counts");
-  // 20 simulations x 101 days x 4 states
+  expect(lines[0]).toBe("sim_id,date,nviruses,status,stage,counts");
+  // 20 simulations x 101 days x 4 stages (one status, Free)
   expect(lines.length).toBe(1 + 20 * 101 * 4);
 });
 

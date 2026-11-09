@@ -182,11 +182,13 @@ val list_models() {
             val params = val::array();
             for (const auto & p : info.params) {
                 val param = val::object();
+                param.set("arg", p.arg);
                 param.set("name", p.name);
                 param.set("value", p.value);
                 param.set("min", p.min);
                 param.set("max", p.max);
                 param.set("step", p.step);
+                param.set("sliderMax", p.slider_max);
                 param.set("integer", p.integer);
                 param.set("description", p.description);
                 params.call<void>("push", param);
@@ -196,7 +198,10 @@ val list_models() {
             model.set("label", info.label);
             model.set("family", info.family);
             model.set("population", info.population);
-            model.set("states", to_js(epiworldjs::state_labels(info)));
+            model.set("model", info.model);
+            const auto labels = epiworldjs::labels(info);
+            model.set("stages", to_js(labels.stages));
+            model.set("statuses", to_js(labels.statuses));
             model.set("n", info.n);
             model.set("prevalence", info.prevalence);
             model.set("params", params);

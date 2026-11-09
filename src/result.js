@@ -36,9 +36,19 @@ export class Result {
     this.model = model;
   }
 
-  /** State labels, in epiworld's order. */
+  /** The stages of the model's natural history, in epiworld's order. */
+  get stages() {
+    return this.model.stages;
+  }
+
+  /** The model's statuses (`["Free"]` when it has none), in epiworld's order. */
+  get statuses() {
+    return this.model.statuses;
+  }
+
+  /** Removed: an agent's state is now a status and a stage. */
   get states() {
-    return this.model.states;
+    throw new Error("Result.states was removed: an agent's state is now a status and a stage; use Result.stages and Result.statuses.");
   }
 
   get nsims() {
@@ -46,30 +56,30 @@ export class Result {
   }
 
   /**
-   * Counts per state and day across simulations: the median and a central
-   * interval (95% by default).
+   * Counts per stage and day (summed over the statuses) across simulations:
+   * the median and a central interval (95% by default).
    *
    * @param {{level?: number}} [options]
-   * @returns {{dates: Int32Array, states: string[], median: Object<string, Float64Array>,
+   * @returns {{dates: Int32Array, stages: string[], median: Object<string, Float64Array>,
    *   lower: Object<string, Float64Array>, upper: Object<string, Float64Array>}}
    */
   summary({ level = 0.95 } = {}) {
-    const { sim_id, date, state, counts } = this.tables.total_hist ?? {};
+    const { sim_id, date, stage, counts } = this.tables.total_hist ?? {};
     if (!counts) throw new Error('summary() needs the "total_hist" output.');
 
-    const states = this.states;
+    const stages = this.stages;
     const ndays = date.reduce((max, d) => Math.max(max, d), 0) + 1;
     const nsims = this.nsims;
-    const stateIndex = new Map(states.map((s, i) => [s, i]));
+    const stageIndex = new Map(stages.map((s, i) => [s, i]));
 
-    // values[state][day] holds one count per simulation
-    const values = states.map(() => Array.from({ length: ndays }, () => new Float64Array(nsims)));
+    // values[stage][day] holds one count per simulation
+    const values = stages.map(() => Array.from({ length: ndays }, () => new Float64Array(nsims)));
     for (let i = 0; i < counts.length; i++)
-      values[stateIndex.get(state[i])][date[i]][sim_id[i]] = counts[i];
+      values[stageIndex.get(stage[i])][date[i]][sim_id[i]] += counts[i];
 
     const alpha = (1 - level) / 2;
-    const out = { dates: Int32Array.from({ length: ndays }, (_, d) => d), states, median: {}, lower: {}, upper: {} };
-    states.forEach((s, k) => {
+    const out = { dates: Int32Array.from({ length: ndays }, (_, d) => d), stages, median: {}, lower: {}, upper: {} };
+    stages.forEach((s, k) => {
       for (const key of ["median", "lower", "upper"]) out[key][s] = new Float64Array(ndays);
       for (let d = 0; d < ndays; d++) {
         const sorted = values[k][d].sort();

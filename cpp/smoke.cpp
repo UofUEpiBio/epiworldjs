@@ -1,4 +1,5 @@
 #include <cstdio>
+#include <set>
 
 #include "core.hpp"
 
@@ -36,35 +37,41 @@ int main() {
 
         const auto out = epiworldjs::run_many(spec);
         const auto & t = out.at("total_hist");
-        CHECK(t.colnames == (std::vector<std::string>{"sim_id", "date", "nviruses", "state", "counts"}));
+        CHECK(t.colnames == (std::vector<std::string>{"sim_id", "date", "nviruses", "status", "stage", "counts"}));
 
-        const auto & states = std::get<std::vector<std::string>>(t.columns[3]);
-        const auto & counts = std::get<std::vector<int>>(t.columns[4]);
-        const auto labels = epiworldjs::state_labels(info);
-        CHECK(t.nrow() == 2u * 21u * labels.size());
-        for (size_t i = 0; i < t.nrow(); i += labels.size()) {
+        // One row per status and stage a day, and every day accounts for every agent
+        const auto & stages = std::get<std::vector<std::string>>(t.columns[4]);
+        const auto & counts = std::get<std::vector<int>>(t.columns[5]);
+        const auto labels = epiworldjs::labels(info);
+        const size_t k = labels.stages.size() * labels.statuses.size();
+        CHECK(t.nrow() == 2u * 21u * k);
+        const std::set<std::string> all(labels.stages.begin(), labels.stages.end());
+        for (size_t i = 0; i < t.nrow(); i += k) {
             int total = 0;
-            for (size_t s = 0; s < labels.size(); ++s) {
-                CHECK(states[i + s] == labels[s]);
+            std::set<std::string> seen;
+            for (size_t s = 0; s < k; ++s) {
+                seen.insert(stages[i + s]);
                 total += counts[i + s];
             }
+            CHECK(seen == all);
             if (total != 300)
                 std::fprintf(stderr, "%s: %d agents on row %zu\n", info.id.c_str(), total, i);
             CHECK(total == 300);
         }
 
-        // Each parameter reaches the model under its name, so the positional
-        // constructor arguments are in the right order. Values spread over
-        // each range, different for every parameter, make swaps visible.
+        // Each argument reaches the model parameter it names. Values spread
+        // over each slider's range, different for every argument, make swaps
+        // visible.
         for (size_t i = 0; i < info.params.size(); ++i) {
             const auto & p = info.params[i];
-            double value = p.min + (p.max - p.min) * (i + 1.0) / (info.params.size() + 1.0);
-            spec.params[p.name] = p.integer ? std::floor(value) : value;
+            double value = p.min + (p.slider_max - p.min) * (i + 1.0) / (info.params.size() + 1.0);
+            spec.params[p.arg] = p.integer ? std::floor(value) : value;
         }
         auto model = epiworldjs::build_model(spec);
         // epiworld stores parameters as epiworld_double (float)
-        for (const auto & [name, x] : spec.params) {
-            const auto value = static_cast<epiworld_double>(x);
+        for (const auto & p : info.params) {
+            const std::string & name = p.name;
+            const auto value = static_cast<epiworld_double>(spec.params.at(p.arg));
             if (model->par(name) != value)
                 std::fprintf(stderr, "%s: \"%s\" is %g, not %g\n", info.id.c_str(),
                     name.c_str(), model->par(name), value);
@@ -80,8 +87,9 @@ int main() {
 
     CHECK(throws(with([](RunSpec & s) { s.model = "SIRX"; }), "Unknown model \"SIRX\""));
     CHECK(throws(with([](RunSpec & s) { s.params["Contact Rate"] = 2; }), "Unknown parameter \"Contact Rate\""));
-    CHECK(throws(with([](RunSpec & s) { s.params["Transmission probability"] = 1.5; }), "\"Transmission probability\" must be between 0 and 1"));
-    CHECK(throws(with([](RunSpec & s) { s.params["Recovery rate"] = std::nan(""); }), "\"Recovery rate\" must be between"));
+    CHECK(throws(with([](RunSpec & s) { s.params["Contact rate"] = 2; }), "\"Contact rate\" is now \"contact_rate\""));
+    CHECK(throws(with([](RunSpec & s) { s.params["transmission_prob"] = 1.5; }), "\"transmission_prob\" must be between 0 and 1"));
+    CHECK(throws(with([](RunSpec & s) { s.params["recovery_rate"] = std::nan(""); }), "\"recovery_rate\" must be between"));
     CHECK(throws(with([](RunSpec & s) { s.prevalence = -0.1; }), "prevalence must be between 0 and 1"));
     CHECK(throws(with([](RunSpec & s) { s.population.n = 0; }), "n must be greater than 0"));
     CHECK(throws(with([](RunSpec & s) { s.seed = -1; }), "seed must be greater"));
@@ -92,8 +100,8 @@ int main() {
 
     RunSpec quarantine = ok;
     quarantine.model = "SEIRNetworkQuarantine";
-    quarantine.params["Quarantine period"] = 2.5;
-    CHECK(throws([&] { epiworldjs::run_many(quarantine); }, "\"Quarantine period\" must be an integer"));
+    quarantine.params["quarantine_period"] = 2.5;
+    CHECK(throws([&] { epiworldjs::run_many(quarantine); }, "\"quarantine_period\" must be an integer"));
 
     RunSpec mixing = ok;
     mixing.model = "SIRMixing";

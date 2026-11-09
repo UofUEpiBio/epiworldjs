@@ -142,7 +142,7 @@ export class Epiworld {
     return this.pool.length;
   }
 
-  /** Metadata for every model: parameters, defaults, limits and states. */
+  /** Metadata for every model: arguments, defaults, limits, stages and statuses. */
   models() {
     return this.core.models();
   }

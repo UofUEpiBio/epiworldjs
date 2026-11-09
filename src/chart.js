@@ -1,8 +1,8 @@
 /**
- * A dependency-free SVG chart of state counts over time: one median line per
- * state and, with more than one simulation, a band for the central interval.
+ * A dependency-free SVG chart of stage counts over time: one median line per
+ * stage and, with more than one simulation, a band for the central interval.
  *
- * Colors come from CSS custom properties, `--epiworld-color-<state>` (the
+ * Colors come from CSS custom properties, `--epiworld-color-<stage>` (the
  * label in lower case, with runs of other characters turned into "-"), and
  * fall back to a built-in palette.
  */
@@ -15,12 +15,12 @@ const PALETTE = ["#0072b2", "#e69f00", "#d55e00", "#009e73", "#cc79a7", "#56b4e9
   "#8c8c8c", "#a6761d", "#6a3d9a", "#b2df8a", "#fb9a99"];
 
 /** "Quarantined Exposed" → "quarantined-exposed" */
-export function stateSlug(state) {
-  return state.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+export function stageSlug(stage) {
+  return stage.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 }
 
-export function stateColor(state, i) {
-  return `var(--epiworld-color-${stateSlug(state)}, ${PALETTE[i % PALETTE.length]})`;
+export function stageColor(stage, i) {
+  return `var(--epiworld-color-${stageSlug(stage)}, ${PALETTE[i % PALETTE.length]})`;
 }
 
 function el(name, attrs = {}, parent) {
@@ -48,14 +48,14 @@ const format = new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 });
  *
  * @param {HTMLElement} container Gets an <svg>, a legend and a tooltip.
  * @param {ReturnType<import("./result.js").Result["summary"]>} summary
- * @param {{bands?: boolean, hidden?: Set<string>, onToggle?: (state: string) => void}} [options]
+ * @param {{bands?: boolean, hidden?: Set<string>, onToggle?: (stage: string) => void}} [options]
  */
 export function renderChart(container, summary, { bands = true, hidden = new Set(), onToggle } = {}) {
   container.replaceChildren();
 
   const W = 640, H = 320, M = { top: 12, right: 16, bottom: 36, left: 56 };
-  const { dates, states } = summary;
-  const visible = states.filter((s) => !hidden.has(s));
+  const { dates, stages } = summary;
+  const visible = stages.filter((s) => !hidden.has(s));
   // Many overlapping bands are unreadable; then only the medians are drawn
   bands = bands && visible.length <= 6;
   const lastDay = dates[dates.length - 1] || 1;
@@ -70,7 +70,7 @@ export function renderChart(container, summary, { bands = true, hidden = new Set
   const y = (v) => H - M.bottom - (v / ytop) * (H - M.top - M.bottom);
 
   const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", part: "chart-svg" });
-  svg.appendChild(Object.assign(el("title"), { textContent: "Agents in each state per day" }));
+  svg.appendChild(Object.assign(el("title"), { textContent: "Agents in each stage per day" }));
 
   // Grid and axes
   const axes = el("g", { class: "axes" }, svg);
@@ -88,16 +88,16 @@ export function renderChart(container, summary, { bands = true, hidden = new Set
   // Bands under all lines, then lines
   const series = el("g", { class: "series" }, svg);
   const path = (values) => Array.from(values, (v, i) => `${i ? "L" : "M"}${x(dates[i]).toFixed(1)},${y(v).toFixed(1)}`).join("");
-  states.forEach((s, i) => {
+  stages.forEach((s, i) => {
     if (hidden.has(s) || !bands) return;
     const upper = path(summary.upper[s]);
     const lower = Array.from(summary.lower[s], (v, j) => [x(dates[j]).toFixed(1), y(v).toFixed(1)])
       .reverse().map(([a, b]) => `L${a},${b}`).join("");
-    el("path", { d: `${upper}${lower}Z`, class: "band", fill: stateColor(s, i), "data-state": s }, series);
+    el("path", { d: `${upper}${lower}Z`, class: "band", fill: stageColor(s, i), "data-stage": s }, series);
   });
-  states.forEach((s, i) => {
+  stages.forEach((s, i) => {
     if (hidden.has(s)) return;
-    el("path", { d: path(summary.median[s]), class: "line", stroke: stateColor(s, i), "data-state": s }, series);
+    el("path", { d: path(summary.median[s]), class: "line", stroke: stageColor(s, i), "data-stage": s }, series);
   });
 
   // Hover readout: a rule at the nearest day and the values in the tooltip
@@ -119,7 +119,7 @@ export function renderChart(container, summary, { bands = true, hidden = new Set
     visible.forEach((s) => {
       const row = document.createElement("div");
       const swatch = Object.assign(document.createElement("span"), { className: "swatch" });
-      swatch.style.background = stateColor(s, states.indexOf(s));
+      swatch.style.background = stageColor(s, stages.indexOf(s));
       const range = bands ? ` (${format.format(summary.lower[s][day])}–${format.format(summary.upper[s][day])})` : "";
       row.append(swatch, `${s}: ${format.format(summary.median[s][day])}${range}`);
       tooltip.append(row);
@@ -134,16 +134,16 @@ export function renderChart(container, summary, { bands = true, hidden = new Set
     tooltip.hidden = true;
   });
 
-  // Legend; clicking a state hides or shows it
+  // Legend; clicking a stage hides or shows it
   const legend = document.createElement("div");
   legend.className = "legend";
   legend.setAttribute("part", "legend");
-  states.forEach((s, i) => {
+  stages.forEach((s, i) => {
     const button = document.createElement("button");
     button.type = "button";
     button.setAttribute("aria-pressed", String(!hidden.has(s)));
     const swatch = Object.assign(document.createElement("span"), { className: "swatch" });
-    swatch.style.background = stateColor(s, i);
+    swatch.style.background = stageColor(s, i);
     button.append(swatch, s);
     button.addEventListener("click", () => onToggle?.(s));
     legend.append(button);

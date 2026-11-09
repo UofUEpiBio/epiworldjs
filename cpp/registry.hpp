@@ -1,9 +1,11 @@
 #ifndef EPIWORLDJS_REGISTRY_HPP
 #define EPIWORLDJS_REGISTRY_HPP
 
+#include <cmath>
 #include <functional>
 #include <map>
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -12,50 +14,74 @@
 
 namespace epiworldjs {
 
-using Model = epiworld::Model<>;
+using Model = epiworld::Model;
 
-/// One model parameter. `name` is epiworld's own name for it (what
-/// `get_param()` and epiworldR use); `min`/`max` are hard limits, enforced
-/// before the model is built, and also what a slider should span.
+/// The core's registry: epiworld's models and the measles models. Each one
+/// lists its arguments (`epiworld::ParamInfo`) and builds the model.
+inline const epiworld::ModelRegistry & core_registry() {
+    static const epiworld::ModelRegistry registry = [] {
+        epiworld::ModelRegistry r;
+        epiworld::epimodels::register_models(r);
+        measles::register_models(r);
+        return r;
+    }();
+    return registry;
+}
+
+/// One argument of a preset: the core's `ParamInfo` (`arg` is the name a spec
+/// uses, `name` the model parameter it sets), plus a slider's step and span.
+/// `min`/`max` are the hard limits, checked before the model is built; `max`
+/// may be infinite, so a slider spans [min, slider_max].
 struct ParamInfo {
+    std::string arg;
     std::string name;
     double value;
     double min;
     double max;
     double step;
+    double slider_max;
     bool integer;
     std::string description;
 };
 
-/// What a builder receives: the parameters (complete, validated) and the
-/// population-level arguments that epiworld's constructors take.
+/// What a preset's layer receives: the preset's own arguments (those the core
+/// model does not take) and the population.
 struct BuildArgs {
     std::map<std::string, double> params;
-    double prevalence;
     int n;
-    int n_infected; ///< round(prevalence * n), for constructors that take a count
     std::vector<double> contact_matrix; ///< Column-major, as epiworld expects
     std::vector<int> sizes; ///< Group sizes ("mixing" population), in agent order
 
-    double operator()(const std::string & name) const { return params.at(name); }
+    double operator()(const std::string & arg) const { return params.at(arg); }
 };
 
-/// How agents meet, which decides what `population` a spec can take:
+using AddLayers = std::function<void(Model &, const BuildArgs &)>;
+
+/// A preset: a model of the core's registry with the population it runs on.
+/// How agents meet decides what `population` a spec can take:
 /// - "network": a small-world network or an edge list, added after the model;
-/// - "connected": random mixing, only `n` (the builder adds the layer);
-/// - "mixing": groups of given sizes and a contact matrix (the builder adds
+/// - "connected": random mixing, only `n` (the preset or the model adds the
+///   layer);
+/// - "mixing": groups of given sizes and a contact matrix (the preset adds
 ///   the layer).
 struct ModelInfo {
     std::string id;
     std::string label;
     std::string family;
     std::string population;
+    std::string model; ///< Its id in the core's registry
+    /// The core model's arguments other than `n` and `prevalence`, then the
+    /// preset's own, with the preset's defaults
     std::vector<ParamInfo> params;
-    std::function<std::unique_ptr<Model>(const BuildArgs &)> build;
-    /// Defaults for the spec fields that are not parameters
-    int n = 10000;
-    double prevalence = 0.01;
-    /// Mixing models: daily contacts between three equal groups, row-major
+    std::set<std::string> extra; ///< The preset's own arguments (its layer's)
+    int n = 0;
+    double prevalence = 0.0;
+    /// The core model takes the initial cases as a count (MeaslesSchool): a
+    /// spec's prevalence becomes round(prevalence * n)
+    bool prevalence_count = false;
+    /// Adds the preset's layer (none for "network": core.hpp adds it)
+    AddLayers add_layers;
+    /// Mixing presets: daily contacts between three equal groups, row-major
     std::vector<double> contact_matrix = {
         18.0, 1.0, 1.0,
          2.0, 16.0, 2.0,
@@ -65,309 +91,121 @@ struct ModelInfo {
 
 namespace detail {
 
-using namespace epiworld::epimodels;
-
-// Shorthands for the parameter kinds that repeat across models
-inline ParamInfo prob(std::string name, double value, std::string description) {
-    return {std::move(name), value, 0.0, 1.0, 0.01, false, std::move(description)};
+// A slider's step and span, from the argument's kind
+inline ParamInfo with_slider(const epiworld::ParamInfo & p) {
+    const bool rate = p.arg == "contact_rate";
+    const bool window = p.arg.find("window") != std::string::npos;
+    const double step = p.integer ? 1.0 : (p.max <= 1.0 ? 0.01 : (rate ? 0.1 : 0.5));
+    const double slider_max = p.max <= 1.0 ? p.max : (rate ? 100.0 : (window ? 30.0 : 60.0));
+    return {p.arg, p.name, p.value, p.min, p.max, step, slider_max, p.integer, p.description};
 }
-
-inline ParamInfo days(std::string name, double value, double min, std::string description, bool integer = false) {
-    return {std::move(name), value, min, 60.0, integer ? 1.0 : 0.5, integer, std::move(description)};
-}
-
-inline ParamInfo contact_rate() {
-    return {"Contact rate", 4.0, 0.0, 100.0, 0.1, false, "Average number of contacts per agent per day."};
-}
-
-const char * const virus_name = "Disease";
 
 // Random mixing: everyone in one group, meeting "Contact rate" others a day
-inline std::unique_ptr<Model> random_mixing(std::unique_ptr<Model> model, const BuildArgs & a) {
-    model->add_param(a("Contact rate"), "Contact rate");
-    auto mix = epiworld::layer::mixing<>("mixing");
-    mix->set_groups(std::vector<size_t>(static_cast<size_t>(a.n), 0u), 1u);
+inline void random_mixing(Model & model, const BuildArgs & a) {
+    model.add_param(a("contact_rate"), "Contact rate");
+    auto mix = epiworld::layer::mixing("mixing");
+    mix->set_groups(epiworld::assign::labels(std::vector<int>(static_cast<size_t>(a.n), 0)), 1u);
     mix->set_contact_matrix({1.0});
     mix->set_contact_rate("Contact rate");
-    model->add_layer(mix);
-    return model;
+    model.add_layer(mix);
 }
 
 // Groups of consecutive agents mixing by the contact matrix
-inline std::unique_ptr<Model> group_mixing(std::unique_ptr<Model> model, const BuildArgs & a) {
-    std::vector<size_t> groups;
+inline void group_mixing(Model & model, const BuildArgs & a) {
+    std::vector<int> groups;
     for (size_t g = 0; g < a.sizes.size(); ++g)
-        groups.insert(groups.end(), static_cast<size_t>(a.sizes[g]), g);
-    auto mix = epiworld::layer::mixing<>("mixing");
-    mix->set_groups(std::move(groups), a.sizes.size());
+        groups.insert(groups.end(), static_cast<size_t>(a.sizes[g]), static_cast<int>(g));
+    auto mix = epiworld::layer::mixing("mixing");
+    mix->set_groups(epiworld::assign::labels(std::move(groups)), a.sizes.size());
     mix->set_contact_matrix(a.contact_matrix);
-    model->add_layer(mix);
-    return model;
+    model.add_layer(mix);
 }
 
-// The quarantine presets: ModelSEIRQuarantine, on a mixing layer or a network
-inline std::unique_ptr<Model> seir_quarantine(const BuildArgs & a) {
-    using namespace epiworld::epimodels;
-    return std::make_unique<ModelSEIRQuarantine<>>(virus_name,
-        static_cast<epiworld_fast_uint>(a.n), a.prevalence,
-        a("Transmission probability"), a("Latent period"), a("Recovery rate"),
-        a("Hospitalization rate"), a("Hospitalization period"),
-        a("Detection delay"),
-        static_cast<epiworld_fast_int>(a("Quarantine period")),
-        a("Quarantine willingness"), a("Isolation willingness"),
-        static_cast<epiworld_fast_int>(a("Isolation period")),
-        a("Contact tracing probability"),
-        static_cast<epiworld_fast_uint>(a("Contact tracing window")));
-}
+/**
+ * A preset of the core model `model`. Its arguments, defaults, limits and
+ * descriptions are the core's; `defaults` changes some defaults, `hidden`
+ * leaves out arguments the model ignores, and `extra` adds the arguments of
+ * the preset's layer.
+ */
+inline ModelInfo preset(
+    std::string id, std::string label, std::string family, std::string population,
+    std::string model,
+    const std::map<std::string, double> & defaults = {},
+    const std::set<std::string> & hidden = {},
+    const std::vector<epiworld::ParamInfo> & extra = {},
+    AddLayers add_layers = nullptr
+) {
+    ModelInfo m;
+    m.id = std::move(id);
+    m.label = std::move(label);
+    m.family = std::move(family);
+    m.population = std::move(population);
+    m.model = std::move(model);
+    m.add_layers = std::move(add_layers);
 
-// The disease and policy parameters the measles models share. `mixing` adds
-// the isolation willingness, which the school model does not have.
-inline std::vector<ParamInfo> measles_disease_and_policy(bool mixing) {
-    std::vector<ParamInfo> out = {
-        prob("Vax efficacy", 0.97, "Probability that the vaccine prevents infection."),
-        prob("Vaccination rate", 1.0 - 1.0 / 15.0, "Proportion of agents vaccinated."),
-        days("Incubation period", 12.0, 1.0, "Mean number of days from exposure to the prodromal stage."),
-        days("Prodromal period", 4.0, 1.0, "Mean number of days infectious before the rash."),
-        days("Rash period", 3.0, 1.0, "Mean number of days with rash."),
-        days("Incubation period sd", 2.5, 0.0, "Standard deviation of the (lognormal) incubation period, in days; 0 gives a fixed period."),
-        days("Prodromal period sd", 1.7, 0.0, "Standard deviation of the (lognormal) prodromal period, in days; 0 gives a fixed period."),
-        days("Rash period sd", 1.0, 0.0, "Standard deviation of the (lognormal) rash period, in days; 0 gives a fixed period."),
-        prob("Hospitalization rate", 0.035, "Daily probability that an agent with rash is hospitalized (0.035: about 10% of cases)."),
-        days("Hospitalization period", 7.0, 1.0, "Average number of days in the hospital."),
-        days("Days undetected", 2.0, 0.0, "Average number of days before a case with rash is detected."),
-        days("Quarantine period", 21.0, -1.0, "Days in quarantine for the contacts of a detected case (negative: no quarantine).", true),
-        prob("Quarantine willingness", 1.0, "Probability that a contact complies with quarantine."),
-        days("Isolation period", 4.0, -1.0, "Days in isolation for a detected case (negative: no isolation).", true),
-    };
-    if (mixing)
-        out.push_back(prob("Isolation willingness", 1.0, "Probability that a detected case complies with isolation."));
-    return out;
+    for (const auto & p : core_registry().get_model_info(m.model).params) {
+        if (p.arg == "n")
+            m.n = static_cast<int>(p.value);
+        else if (p.arg == "prevalence") {
+            m.prevalence_count = p.integer;
+            m.prevalence = p.integer ? p.value / m.n : p.value;
+        } else if (!hidden.count(p.arg))
+            m.params.push_back(with_slider(p));
+    }
+    for (const auto & p : extra) {
+        m.params.push_back(with_slider(p));
+        m.extra.insert(p.arg);
+    }
+    for (auto & p : m.params)
+        if (defaults.count(p.arg))
+            p.value = defaults.at(p.arg);
+    return m;
 }
 
 // One initial case among three groups of 3000, 15 contacts per day (the
 // examples of the measles R package)
-inline void measles_mixing_defaults(ModelInfo & m) {
-    m.n = 9000;
-    m.prevalence = 1.0 / 9000.0;
+inline ModelInfo measles_mixing(ModelInfo m) {
     m.contact_matrix = {
         13.5, 0.75, 0.75,
          1.5, 12.0,  1.5,
          1.5,  3.0, 10.5
     };
+    return m;
 }
 
-// Defaults follow epiworldRShiny and the epiworldR examples.
+// The presets. Defaults are the core's, except the transmission probability
+// of the random-mixing, group-mixing and quarantine presets (as in
+// epiworldRShiny).
 inline std::vector<ModelInfo> make_registry() {
 
-    const ParamInfo transmission_net = prob("Transmission probability", 0.05, "Probability that a contact with an infected agent infects.");
-    const ParamInfo transmission_conn = prob("Transmission probability", 0.1, "Probability that a contact with an infected agent infects.");
-    const ParamInfo recovery = prob("Recovery rate", 0.14, "Daily probability that an infected agent recovers.");
-    const ParamInfo death = prob("Death rate", 0.01, "Daily probability that an infected agent dies.");
-    const ParamInfo latent = days("Latent period", 7.0, 1.0, "Mean days in the exposed state (infected, not yet infectious).");
+    const std::map<std::string, double> mixed = {{"transmission_prob", 0.1}};
+    const std::set<std::string> ignored = {"vax_reduction_recovery_rate"};
+    const epiworld::ParamInfo contact_rate = {"contact_rate", "Contact rate",
+        4.0, 0.0, 100.0, false, "Average number of contacts per agent per day."};
 
-    const std::vector<ParamInfo> quarantine = {
-        prob("Hospitalization rate", 0.05, "Daily probability that an infected agent is hospitalized."),
-        days("Hospitalization period", 7.0, 1.0, "Average number of days in the hospital."),
-        days("Detection delay", 3.0, -1.0, "Mean days before an infected agent is detected (0: at once; negative: never)."),
-        days("Quarantine period", 14.0, -1.0, "Days in quarantine for the contacts of a detected case (negative: no quarantine).", true),
-        prob("Quarantine willingness", 0.8, "Probability that a contact complies with quarantine."),
-        prob("Isolation willingness", 0.5, "Probability that a detected case complies with isolation."),
-        days("Isolation period", 7.0, -1.0, "Days in isolation for a detected case (negative: no isolation).", true),
-        prob("Contact tracing probability", 0.7, "Probability that a contact is traced."),
-        {"Contact tracing window", 3.0, 0.0, 30.0, 1.0, true, "Days before detection whose contacts are traced."},
-    };
+    std::vector<ModelInfo> out;
+    for (std::string id : {"SIR", "SIS", "SEIR", "SIRD", "SISD", "SEIRD"})
+        out.push_back(preset(id, id, "basic", "network", id));
+    for (std::string id : {"SIR", "SEIR", "SIRD", "SEIRD"})
+        out.push_back(preset(id + "CONN", id + " (random mixing)", "connected",
+            "connected", id, mixed, {}, {contact_rate}, random_mixing));
+    for (std::string id : {"SIR", "SEIR"})
+        out.push_back(preset(id + "Mixing", id + " (mixing)", "mixing", "mixing",
+            id, mixed, {}, {}, group_mixing));
+    out.push_back(preset("SEIRMixingQuarantine", "SEIR (mixing) with quarantine",
+        "mixing", "mixing", "SEIRQuarantine", mixed, {}, {}, group_mixing));
+    out.push_back(preset("SEIRNetworkQuarantine", "SEIR (network) with quarantine",
+        "basic", "network", "SEIRQuarantine", mixed));
 
-    auto with = [](std::vector<ParamInfo> a, const std::vector<ParamInfo> & b) {
-        a.insert(a.end(), b.begin(), b.end());
-        return a;
-    };
-
-    // Builds each model through its own (positional) constructor, so the
-    // parameters reach epiworld exactly as epiworldR would pass them; the
-    // "connected" and "mixing" presets then add their layer.
-    return {
-        {"SIR", "SIR", "basic", "network", {transmission_net, recovery},
-            [](const BuildArgs & a) {
-                return std::make_unique<ModelSIR<>>(virus_name,
-                    static_cast<epiworld_fast_uint>(a.n), a.prevalence,
-                    a("Transmission probability"), a("Recovery rate"));
-            }},
-        {"SIS", "SIS", "basic", "network", {transmission_net, recovery},
-            [](const BuildArgs & a) {
-                return std::make_unique<ModelSIS<>>(virus_name,
-                    static_cast<epiworld_fast_uint>(a.n), a.prevalence,
-                    a("Transmission probability"), a("Recovery rate"));
-            }},
-        {"SEIR", "SEIR", "basic", "network", {transmission_net, latent, recovery},
-            [](const BuildArgs & a) {
-                return std::make_unique<ModelSEIR<>>(virus_name,
-                    static_cast<epiworld_fast_uint>(a.n), a.prevalence,
-                    a("Transmission probability"), a("Latent period"), a("Recovery rate"));
-            }},
-        {"SIRD", "SIRD", "basic", "network", {transmission_net, recovery, death},
-            [](const BuildArgs & a) {
-                return std::make_unique<ModelSIRD<>>(virus_name,
-                    static_cast<epiworld_fast_uint>(a.n), a.prevalence,
-                    a("Transmission probability"), a("Recovery rate"), a("Death rate"));
-            }},
-        {"SISD", "SISD", "basic", "network", {transmission_net, recovery, death},
-            [](const BuildArgs & a) {
-                return std::make_unique<ModelSISD<>>(virus_name,
-                    static_cast<epiworld_fast_uint>(a.n), a.prevalence,
-                    a("Transmission probability"), a("Recovery rate"), a("Death rate"));
-            }},
-        {"SEIRD", "SEIRD", "basic", "network", {transmission_net, latent, recovery, death},
-            [](const BuildArgs & a) {
-                return std::make_unique<ModelSEIRD<>>(virus_name,
-                    static_cast<epiworld_fast_uint>(a.n), a.prevalence,
-                    a("Transmission probability"), a("Latent period"), a("Recovery rate"),
-                    a("Death rate"));
-            }},
-        {"SIRCONN", "SIR (random mixing)", "connected", "connected",
-            {contact_rate(), transmission_conn, recovery},
-            [](const BuildArgs & a) {
-                return random_mixing(std::make_unique<ModelSIR<>>(virus_name,
-                    static_cast<epiworld_fast_uint>(a.n), a.prevalence,
-                    a("Transmission probability"), a("Recovery rate")), a);
-            }},
-        {"SEIRCONN", "SEIR (random mixing)", "connected", "connected",
-            {contact_rate(), transmission_conn, latent, recovery},
-            [](const BuildArgs & a) {
-                return random_mixing(std::make_unique<ModelSEIR<>>(virus_name,
-                    static_cast<epiworld_fast_uint>(a.n), a.prevalence,
-                    a("Transmission probability"), a("Latent period"),
-                    a("Recovery rate")), a);
-            }},
-        {"SIRDCONN", "SIRD (random mixing)", "connected", "connected",
-            {contact_rate(), transmission_conn, recovery, death},
-            [](const BuildArgs & a) {
-                return random_mixing(std::make_unique<ModelSIRD<>>(virus_name,
-                    static_cast<epiworld_fast_uint>(a.n), a.prevalence,
-                    a("Transmission probability"), a("Recovery rate"),
-                    a("Death rate")), a);
-            }},
-        {"SEIRDCONN", "SEIRD (random mixing)", "connected", "connected",
-            {contact_rate(), transmission_conn, latent, recovery, death},
-            [](const BuildArgs & a) {
-                return random_mixing(std::make_unique<ModelSEIRD<>>(virus_name,
-                    static_cast<epiworld_fast_uint>(a.n), a.prevalence,
-                    a("Transmission probability"), a("Latent period"),
-                    a("Recovery rate"), a("Death rate")), a);
-            }},
-        {"SIRMixing", "SIR (mixing)", "mixing", "mixing", {transmission_conn, recovery},
-            [](const BuildArgs & a) {
-                return group_mixing(std::make_unique<ModelSIR<>>(virus_name,
-                    static_cast<epiworld_fast_uint>(a.n), a.prevalence,
-                    a("Transmission probability"), a("Recovery rate")), a);
-            }},
-        {"SEIRMixing", "SEIR (mixing)", "mixing", "mixing",
-            {transmission_conn, latent, recovery},
-            [](const BuildArgs & a) {
-                return group_mixing(std::make_unique<ModelSEIR<>>(virus_name,
-                    static_cast<epiworld_fast_uint>(a.n), a.prevalence,
-                    a("Transmission probability"), a("Latent period"),
-                    a("Recovery rate")), a);
-            }},
-        {"SEIRMixingQuarantine", "SEIR (mixing) with quarantine", "mixing", "mixing",
-            with({transmission_conn, latent, recovery}, quarantine),
-            [](const BuildArgs & a) { return group_mixing(seir_quarantine(a), a); }},
-        {"SEIRNetworkQuarantine", "SEIR (network) with quarantine", "basic", "network",
-            with({transmission_conn, latent, recovery}, quarantine),
-            [](const BuildArgs & a) { return seir_quarantine(a); }},
-
-        // Measles (UofUEpiBio/measles); defaults follow its R package
-        [&] {
-            ModelInfo m{"MeaslesSchool", "Measles in a school", "measles", "connected",
-                with({
-                    {"Contact rate", 15.0 / 0.9 / 4.0, 0.0, 100.0, 0.1, false, "Average number of contacts per agent per day."},
-                    prob("Transmission rate", 0.9, "Probability of transmission per contact with an infectious agent."),
-                }, measles_disease_and_policy(false)),
-                [](const BuildArgs & a) {
-                    return std::make_unique<measles::ModelMeaslesSchool<>>(
-                        static_cast<epiworld_fast_uint>(a.n),
-                        static_cast<epiworld_fast_uint>(a.n_infected),
-                        a("Contact rate"), a("Transmission rate"), a("Vax efficacy"),
-                        0.5, // vax_reduction_recovery_rate, ignored by the model
-                        a("Incubation period"), a("Prodromal period"), a("Rash period"),
-                        a("Days undetected"), a("Hospitalization rate"),
-                        a("Hospitalization period"), a("Vaccination rate"),
-                        static_cast<epiworld_fast_int>(a("Quarantine period")),
-                        a("Quarantine willingness"),
-                        static_cast<epiworld_fast_int>(a("Isolation period")),
-                        a("Incubation period sd"), a("Prodromal period sd"),
-                        a("Rash period sd"));
-                }};
-            // One initial case in a school of 500
-            m.n = 500;
-            m.prevalence = 0.002;
-            return m;
-        }(),
-        [&] {
-            ModelInfo m{"MeaslesMixing", "Measles (mixing)", "measles", "mixing",
-                with(with({prob("Transmission rate", 0.9, "Probability of transmission per contact with an infectious agent.")},
-                    measles_disease_and_policy(true)), {
-                    prob("Contact tracing success rate", 1.0, "Probability that a contact is traced."),
-                    {"Contact tracing days window", 4.0, 0.0, 30.0, 1.0, true, "Days before detection whose contacts are traced."},
-                    prob("Rash reduction contact rate", 1.0, "Multiplier of the contact rate of agents with rash (1: no reduction)."),
-                }),
-                [](const BuildArgs & a) {
-                    return group_mixing(std::make_unique<measles::ModelMeaslesMixing<>>(
-                        static_cast<epiworld_fast_uint>(a.n), a.prevalence,
-                        a("Transmission rate"), a("Vax efficacy"),
-                        0.5, // vax_reduction_recovery_rate, ignored by the model
-                        a("Incubation period"), a("Prodromal period"), a("Rash period"),
-                        a("Hospitalization rate"), a("Hospitalization period"),
-                        a("Days undetected"),
-                        static_cast<epiworld_fast_int>(a("Quarantine period")),
-                        a("Quarantine willingness"), a("Isolation willingness"),
-                        static_cast<epiworld_fast_int>(a("Isolation period")),
-                        a("Vaccination rate"), a("Contact tracing success rate"),
-                        static_cast<epiworld_fast_uint>(a("Contact tracing days window")),
-                        a("Rash reduction contact rate"),
-                        a("Incubation period sd"), a("Prodromal period sd"),
-                        a("Rash period sd")), a);
-                }};
-            measles_mixing_defaults(m);
-            return m;
-        }(),
-        [&] {
-            std::vector<ParamInfo> params = with(
-                {prob("Transmission rate", 0.9, "Probability of transmission per contact with an infectious agent.")},
-                measles_disease_and_policy(true));
-            // Quarantine depends on the contact's risk instead of being one period
-            params.erase(std::remove_if(params.begin(), params.end(),
-                [](const ParamInfo & p) { return p.name == "Quarantine period"; }), params.end());
-            ModelInfo m{"MeaslesMixingRiskQuarantine", "Measles (mixing) with risk-based quarantine", "measles", "mixing",
-                with(params, {
-                    days("Quarantine period high", 21.0, -1.0, "Days in quarantine for high-risk contacts (negative: no quarantine).", true),
-                    days("Quarantine period medium", 14.0, -1.0, "Days in quarantine for medium-risk contacts (negative: no quarantine).", true),
-                    days("Quarantine period low", 7.0, -1.0, "Days in quarantine for low-risk contacts (negative: no quarantine).", true),
-                    prob("Detection rate quarantine", 0.5, "Daily probability that an infected agent in quarantine is detected."),
-                    prob("Contact tracing success rate", 1.0, "Probability that a contact is traced."),
-                    {"Contact tracing days window", 4.0, 0.0, 30.0, 1.0, true, "Days before detection whose contacts are traced."},
-                }),
-                [](const BuildArgs & a) {
-                    return group_mixing(std::make_unique<measles::ModelMeaslesMixingRiskQuarantine<>>(
-                        static_cast<epiworld_fast_uint>(a.n), a.prevalence,
-                        a("Transmission rate"), a("Vax efficacy"),
-                        a("Incubation period"), a("Prodromal period"), a("Rash period"),
-                        a("Hospitalization rate"), a("Hospitalization period"),
-                        a("Days undetected"),
-                        static_cast<epiworld_fast_int>(a("Quarantine period high")),
-                        static_cast<epiworld_fast_int>(a("Quarantine period medium")),
-                        static_cast<epiworld_fast_int>(a("Quarantine period low")),
-                        a("Quarantine willingness"), a("Isolation willingness"),
-                        static_cast<epiworld_fast_int>(a("Isolation period")),
-                        a("Vaccination rate"), a("Detection rate quarantine"),
-                        a("Contact tracing success rate"),
-                        static_cast<epiworld_fast_uint>(a("Contact tracing days window")),
-                        a("Incubation period sd"), a("Prodromal period sd"),
-                        a("Rash period sd")), a);
-                }};
-            measles_mixing_defaults(m);
-            return m;
-        }(),
-    };
+    // Measles (UofUEpiBio/measles); the school model adds its own layer
+    out.push_back(preset("MeaslesSchool", "Measles in a school", "measles",
+        "connected", "MeaslesSchool", {}, ignored));
+    out.push_back(measles_mixing(preset("MeaslesMixing", "Measles (mixing)",
+        "measles", "mixing", "MeaslesMixing", {}, ignored, {}, group_mixing)));
+    out.push_back(measles_mixing(preset("MeaslesMixingRiskQuarantine",
+        "Measles (mixing) with risk-based quarantine", "measles", "mixing",
+        "MeaslesMixingRiskQuarantine", {}, ignored, {}, group_mixing)));
+    return out;
 }
 
 } // namespace detail
