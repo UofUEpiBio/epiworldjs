@@ -110,7 +110,7 @@ std::vector<epiworldjs::RunSpec> specs() {
         // Again with every parameter halfway between its default and minimum
         for (const auto & p : info.params) {
             double value = (p.value + p.min) / 2.0;
-            spec.params[p.name] = p.integer ? std::floor(value) : value;
+            spec.params[p.arg] = p.integer ? std::floor(value) : value;
         }
         spec.seed = 82;
         out.push_back(spec);

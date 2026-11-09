@@ -64,30 +64,36 @@ inline void require_in(double value, double min, double max, const std::string &
 
 } // namespace detail
 
-/// The parameters of `spec`, with defaults filled in. Throws on unknown names
-/// and out-of-range values, naming the parameter.
+/// The parameters of `spec`, by argument name, with defaults filled in.
+/// Throws on unknown names and out-of-range values, naming the argument. A
+/// parameter given by its old name (the model parameter's, e.g.
+/// "Transmission probability") is rejected with the argument that replaced it.
 inline std::map<std::string, double> resolve_params(const ModelInfo & info, const RunSpec & spec) {
 
     for (const auto & kv : spec.params) {
         bool known = std::any_of(info.params.begin(), info.params.end(),
-            [&](const ParamInfo & p) { return p.name == kv.first; });
-        if (!known) {
-            std::string names;
-            for (const auto & p : info.params)
-                names += (names.empty() ? "\"" : ", \"") + p.name + "\"";
-            throw std::invalid_argument("Unknown parameter \"" + kv.first +
-                "\" for model " + info.id + ". Its parameters are: " + names + ".");
-        }
+            [&](const ParamInfo & p) { return p.arg == kv.first; });
+        if (known)
+            continue;
+        for (const auto & p : info.params)
+            if (p.name == kv.first)
+                throw std::invalid_argument("Parameters are named by argument: \"" +
+                    kv.first + "\" is now \"" + p.arg + "\".");
+        std::string names;
+        for (const auto & p : info.params)
+            names += (names.empty() ? "\"" : ", \"") + p.arg + "\"";
+        throw std::invalid_argument("Unknown parameter \"" + kv.first +
+            "\" for model " + info.id + ". Its parameters are: " + names + ".");
     }
 
     std::map<std::string, double> out;
     for (const auto & p : info.params) {
-        auto it = spec.params.find(p.name);
+        auto it = spec.params.find(p.arg);
         double value = it == spec.params.end() ? p.value : it->second;
-        detail::require_in(value, p.min, p.max, "\"" + p.name + "\"");
+        detail::require_in(value, p.min, p.max, "\"" + p.arg + "\"");
         detail::require(!p.integer || std::floor(value) == value,
-            "\"" + p.name + "\" must be an integer.");
-        out[p.name] = value;
+            "\"" + p.arg + "\" must be an integer.");
+        out[p.arg] = value;
     }
     return out;
 }
@@ -185,12 +191,16 @@ inline std::unique_ptr<Model> build_model(const RunSpec & spec) {
     require(spec.seed >= 0, "seed must be greater than or equal to 0.");
     validate_outputs(spec.outputs);
 
-    BuildArgs args;
-    args.params = resolve_params(info, spec);
-    args.prevalence = prevalence;
     Population pop = resolve_population(info, spec);
+
+    // The core model's arguments, and the preset's (its layer's)
+    std::map<std::string, double> values;
+    BuildArgs args;
+    for (const auto & [arg, value] : resolve_params(info, spec))
+        (info.extra.count(arg) ? args.params : values)[arg] = value;
+    values["n"] = pop.n;
+    values["prevalence"] = info.prevalence_count ? std::lround(prevalence * pop.n) : prevalence;
     args.n = pop.n;
-    args.n_infected = static_cast<int>(std::lround(prevalence * pop.n));
 
     // Row-major (as users write it) to column-major (as epiworld reads it)
     size_t g = pop.sizes.size();
@@ -201,17 +211,19 @@ inline std::unique_ptr<Model> build_model(const RunSpec & spec) {
 
     args.sizes = pop.sizes;
 
-    auto model = info.build(args);
+    auto model = core_registry().make_model(info.model, values);
+    if (info.add_layers)
+        info.add_layers(*model, args);
     model->verbose_off();
 
     // A small-world network is drawn again for every simulation, from its seed;
     // an edge list is the same in all of them.
     if (pop.type == "smallworld") {
-        model->add_layer(epiworld::layer::network<>("network",
-            epiworld::graph::smallworld<>(static_cast<epiworld_fast_uint>(pop.k),
+        model->add_layer(epiworld::layer::network("network",
+            epiworld::graph::smallworld(static_cast<epiworld_fast_uint>(pop.k),
                 pop.p, pop.directed)));
     } else if (pop.type == "edgelist") {
-        model->add_layer(epiworld::layer::network<>("network",
+        model->add_layer(epiworld::layer::network("network",
             epiworld::AdjList(pop.source, pop.target, pop.n, pop.directed)));
     }
 
@@ -269,14 +281,24 @@ inline epiworld::RunOutputs run_multiple(const RunSpec & spec) {
     return saver.results();
 }
 
-/// The state labels of a model, in epiworld's order.
-inline std::vector<std::string> state_labels(const ModelInfo & info) {
+/// The stages of a model's natural history and its statuses ("Free" alone
+/// when the model has none), in epiworld's order: the `stage` and `status`
+/// columns of its outputs take these values.
+struct Labels {
+    std::vector<std::string> stages;
+    std::vector<std::string> statuses;
+};
+
+inline Labels labels(const ModelInfo & info) {
     RunSpec spec;
     spec.model = info.id;
-    // The smallest population each kind allows, since only the states matter
+    // The smallest population each kind allows, since only the labels matter
     spec.population.n = 3;
     spec.population.k = 1;
-    return build_model(spec)->get_states();
+    auto model = build_model(spec);
+    const epiworld::Statuses * st = model->get_statuses();
+    return {model->get_natural_history()->get_stages(),
+        st ? st->get_stages() : std::vector<std::string>{"Free"}};
 }
 
 } // namespace epiworldjs

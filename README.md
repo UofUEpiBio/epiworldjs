@@ -54,8 +54,8 @@ One script tag, one HTML tag:
   ndays="100"
   nsims="30"
   n="10000"
-  params='{"Contact rate": 4}'
-  controls="Contact rate, Transmission probability"
+  params='{"contact_rate": 4}'
+  controls="contact_rate, transmission_prob"
   autorun live>
 </epiworld-model>
 ```
@@ -66,15 +66,15 @@ The `<epiworld-model>` element:
   parameters listed in `controls`, or all of them with `controls="all"`);
 - has a **Run** button, an `autorun` attribute, and a `live` attribute
   (debounced re-runs while sliders move);
-- draws a built-in, dependency-free SVG chart of the state counts over
-  time -- with `nsims > 1`, the median and a 95% band -- plus a summary
+- draws a built-in, dependency-free SVG chart of the counts per stage over
+  time (summed over the statuses) -- with `nsims > 1`, the median and a 95% band -- plus a summary
   (peak active cases, day of peak, outbreak size);
 - offers `model-picker` (a drop-down with every model, i.e., a static
   Shiny-like playground) and **Download CSV**;
-- is themeable with CSS custom properties (`--epiworld-color-<state>`,
+- is themeable with CSS custom properties (`--epiworld-color-<stage>`,
   `--epiworld-accent`, `--epiworld-font`, ...), `::part()` selectors, and
   follows light/dark mode;
-- takes `hide="Susceptible, ..."` for states hidden at first (the legend
+- takes `hide="Susceptible, ..."` for stages hidden at first (the legend
   toggles them);
 - emits an `epiworld-result` event and exposes `.result`, so pages can do
   their own plotting.
@@ -88,8 +88,8 @@ The same two tags go in a raw HTML block:
 <script type="module"
   src="https://cdn.jsdelivr.net/npm/epiworldjs/dist/epiworld-model.js"></script>
 <epiworld-model model="MeaslesSchool" nsims="50"
-  params='{"Vaccination rate": 0.8, "Quarantine willingness": 0}'
-  controls="Vaccination rate, Quarantine willingness" autorun live>
+  params='{"prop_vaccinated": 0.8, "quarantine_willingness": 0}'
+  controls="prop_vaccinated, quarantine_willingness" autorun live>
 </epiworld-model>
 ```
 ````
@@ -101,7 +101,7 @@ The same two tags go in a raw HTML block:
 import { Epiworld } from "https://cdn.jsdelivr.net/npm/epiworldjs/dist/epiworld-model.js";
 
 const ew = await Epiworld.load();     // starts a pool of Web Workers
-ew.models();                          // metadata for every model: params, defaults, ranges
+ew.models();                          // every model: arguments, defaults, limits, stages, statuses
 
 const res = await ew.run({
   model: "SEIRCONN",
@@ -110,20 +110,40 @@ const res = await ew.run({
   ndays: 100,
   nsims: 50,
   seed: 1,
-  params: { "Contact rate": 4, "Transmission probability": 0.1 },
+  params: { contact_rate: 4, transmission_prob: 0.1 },
   outputs: ["total_hist", "transition", "reproductive"]
 });
 
-res.summary();   // median + 2.5% / 97.5% bands per state and day
+res.summary();   // median + 2.5% / 97.5% bands per stage and day
 res.toCSV();     // any output table, with epiworld's CSV columns
 ```
 
 The same code runs in Node (20+), where the workers are `worker_threads`.
 
-Parameter names are the epiworld names (`"Contact rate"`,
-`"Transmission probability"`, `"Latent period"`, ...), the same ones you use in
-epiworldR and epiworldpy; `ew.models()` lists each model's parameters, and an
-unknown name is an error.
+Parameters are named by argument (`contact_rate`, `transmission_prob`,
+`latent_period`, ...), as in epiworld's model registry and the arguments of
+epiworldR's and epiworldpy's model constructors. `ew.models()` lists each
+model's arguments (`arg`), the model parameter each one sets (`name`, e.g.
+`"Transmission probability"`), defaults and limits; an unknown name is an
+error.
+
+Since epiworld 1.0.0 an agent's state is a **status** (Free, Quarantined,
+Isolated, Hospitalized, ...) and a **stage** of the virus's natural history
+(Susceptible, Exposed, Infected, ...). The outputs have a `status` and a
+`stage` column (`total_hist`, `virus_hist`, `tool_hist`; `transition` has
+`from_status`, `from_stage`, `to_status`, `to_stage`), `ew.models()` lists
+each model's `stages` and `statuses`, and `summary()` and the chart count
+agents by stage, summed over the statuses.
+
+### Migrating from 0.x
+
+- Parameters by their old names (`"Transmission probability"`) throw an error
+  naming the argument that replaced them (`transmission_prob`).
+- The `state` column, `ModelInfo.states` and `Result.states` are gone (the
+  last two throw): use the `status` and `stage` columns, `stages` and
+  `statuses`.
+- `summary()` returns `stages` instead of `states`; the chart's CSS custom
+  properties are `--epiworld-color-<stage>` and `hide` takes stages.
 
 ## Models
 
@@ -137,13 +157,18 @@ epiworld's built-in models and the
 | Mixing (groups + contact matrix) | SIRMixing, SEIRMixing, SEIRMixingQuarantine |
 | Network + quarantine | SEIRNetworkQuarantine |
 
-Since epiworld 1.0.0 a model's states describe the course of infection and its
-layers describe who meets whom, so these ids are presets: the random-mixing ones are epiworld's SIR, SEIR,
-SIRD and SEIRD models with a one-group mixing layer whose contacts are the
-"Contact rate" parameter; the mixing ones add a mixing layer over the groups;
-both quarantine presets build `ModelSEIRQuarantine`, on a mixing layer or on
-the network.
 | Measles | MeaslesSchool, MeaslesMixing, MeaslesMixingRiskQuarantine |
+
+Since epiworld 1.0.0 a model's natural history describes the course of
+infection and its layers describe who meets whom, so these ids are presets of
+the models in epiworld's registry (`ModelInfo.model`): the random-mixing ones
+are SIR, SEIR, SIRD and SEIRD with a one-group mixing layer whose contacts are
+the `contact_rate` argument; the mixing ones add a mixing layer over the
+groups; both quarantine presets build `SEIRQuarantine`, on a mixing layer or
+on the network. A preset's arguments, defaults, limits and descriptions are
+the registry's; it adds only the population, its layer's arguments, a few
+defaults (a transmission probability of 0.1 for the mixing and quarantine
+presets), and slider steps.
 
 Populations can be a small-world network, a user-supplied edge list, or
 groups with a contact matrix, depending on the model.
@@ -160,10 +185,12 @@ WASM core: embind glue (cpp/bindings.cpp) -> spec -> model -> results (cpp/core.
 vendor/epiworld + vendor/measles  (header-only C++, vendored)
 ```
 
-- **One model registry** (`cpp/registry.hpp`) is the single source of
-  truth: model id, family, parameters (name, default, min, max, step,
-  description), and a builder that calls the real C++ constructor. The JS
-  API and the web component's forms are generated from it.
+- **epiworld's model registry** (`epiworld::ModelRegistry`, with
+  `measles::register_models()`) is the single source of truth for each
+  model's arguments (name, default, limits, description) and builds the
+  model. `cpp/registry.hpp` lists the presets on top of it: model id,
+  family, population, and slider steps. The JS API and the web component's
+  forms are generated from them.
 - **Declarative specs, not bound classes.** JS sends a plain object;
   C++ builds the model, runs it, and returns typed arrays. Specs are easy
   to send to workers, store in URLs, and share.

@@ -40,8 +40,8 @@ test("more workers than simulations, and concurrent runs", async () => {
 test("errors in workers reject with the core's message", async () => {
   const ew = await Epiworld.load({ workers: 2 });
   try {
-    await assert.rejects(ew.run({ ...spec, params: { "Transmission probability": 2 } }),
-      /"Transmission probability" must be between 0 and 1/);
+    await assert.rejects(ew.run({ ...spec, params: { transmission_prob: 2 } }),
+      /"transmission_prob" must be between 0 and 1/);
     await assert.rejects(ew.run({ model: "SIRX" }), /Unknown model "SIRX"/);
     await assert.rejects(ew.run({ ...spec, nsims: 0 }), /nsims must be at least 1/);
     // The pool still works afterwards
@@ -51,20 +51,21 @@ test("errors in workers reject with the core's message", async () => {
   }
 });
 
-test("summary() gives the median and a 95% band per state and day", async () => {
+test("summary() gives the median and a 95% band per stage and day", async () => {
   const ew = await Epiworld.load({ workers: 2 });
   try {
     const res = await ew.run(spec);
     const s = res.summary();
-    assert.deepEqual(s.states, ["Susceptible", "Exposed", "Infected", "Removed"]);
+    assert.deepEqual(s.stages, ["Susceptible", "Exposed", "Infected", "Removed"]);
+    assert.throws(() => res.states, /use Result.stages and Result.statuses/);
     assert.equal(s.dates.length, spec.ndays + 1);
 
-    // Checked against the per-simulation counts of one state and day
+    // Checked against the per-simulation counts of one stage and day
     const t = res.tables.total_hist;
     const day = 20, state = "Infected";
     const values = [];
     for (let i = 0; i < t.counts.length; i++)
-      if (t.date[i] === day && t.state[i] === state) values.push(t.counts[i]);
+      if (t.date[i] === day && t.stage[i] === state) values.push(t.counts[i]);
     values.sort((a, b) => a - b);
     assert.equal(values.length, spec.nsims);
     assert.equal(s.median[state][day], values[3]);
@@ -72,7 +73,7 @@ test("summary() gives the median and a 95% band per state and day", async () => 
     assert.ok(s.lower[state][day] >= values[0] && s.upper[state][day] <= values[6]);
 
     // Medians of a conserved population need not sum to n, but day 0 is fixed
-    const day0 = s.states.reduce((sum, k) => sum + s.median[k][0], 0);
+    const day0 = s.stages.reduce((sum, k) => sum + s.median[k][0], 0);
     assert.equal(day0, spec.n);
   } finally {
     ew.terminate();
@@ -83,8 +84,8 @@ test("toCSV() writes one row per table row, with a header", async () => {
   const ew = await Epiworld.load({ workers: 0 });
   const res = await ew.run({ model: "SIR", n: 100, ndays: 3 });
   const lines = res.toCSV().trimEnd().split("\n");
-  assert.equal(lines[0], "sim_id,date,nviruses,state,counts");
+  assert.equal(lines[0], "sim_id,date,nviruses,status,stage,counts");
   assert.equal(lines.length, 1 + 4 * 3);
-  assert.match(lines[1], /^0,0,1,Susceptible,\d+$/);
+  assert.match(lines[1], /^0,0,1,Free,Susceptible,\d+$/);
   assert.throws(() => res.toCSV("transition"), /No "transition" output/);
 });

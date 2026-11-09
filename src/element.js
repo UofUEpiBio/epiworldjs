@@ -2,20 +2,21 @@
  * <epiworld-model>: an epiworld model with controls and a chart, in one tag.
  *
  *   <epiworld-model model="SEIRCONN" ndays="100" nsims="30" n="10000"
- *     params='{"Contact rate": 4}' controls="Contact rate, Transmission probability"
+ *     params='{"contact_rate": 4}' controls="contact_rate, transmission_prob"
  *     autorun live></epiworld-model>
  *
  * Attributes
  *   model         Model id (default "SIRCONN"); see Epiworld.models().
  *   n, ndays, nsims, seed, prevalence
  *                 As in the run spec.
- *   params        JSON object of parameter values, by epiworld name.
- *   controls      Comma-separated names to show as sliders: parameters, and
+ *   params        JSON object of parameter values, by argument name
+ *                 (Epiworld.models(): params[].arg, e.g. "transmission_prob").
+ *   controls      Comma-separated names to show as sliders: arguments, and
  *                 "n", "ndays", "nsims", "prevalence", "seed"; or "all".
  *   model-picker  Shows a drop-down with every model.
  *   autorun       Runs once loaded.
  *   live          Re-runs (debounced) while the controls change.
- *   hide          Comma-separated states hidden in the chart at first (the
+ *   hide          Comma-separated stages hidden in the chart at first (the
  *                 legend shows them again).
  *
  * Properties and events
@@ -24,7 +25,7 @@
  *   run()         Runs now; resolves to the Result.
  *   "epiworld-result" event, with the Result as `detail`.
  *
- * Styling: CSS custom properties (--epiworld-color-<state>, --epiworld-accent,
+ * Styling: CSS custom properties (--epiworld-color-<stage>, --epiworld-accent,
  * --epiworld-font, --epiworld-surface, --epiworld-text) and ::part(controls,
  * chart, summary, run, download, picker, error, legend, tooltip).
  */
@@ -171,17 +172,17 @@ export class EpiworldModelElement extends HTMLElement {
       }
     }
     // Attribute params are kept when the picker switches to a model that has them
-    const names = new Set(model.params.map((p) => p.name));
+    const names = new Set(model.params.map((p) => p.arg));
     spec.params = Object.fromEntries(Object.entries(params).filter(([k]) => names.has(k) || this._values.model == null));
     for (const p of model.params)
-      if (this._values[p.name] != null) spec.params[p.name] = this._values[p.name];
+      if (this._values[p.arg] != null) spec.params[p.arg] = this._values[p.arg];
     return spec;
   }
 
   _controlNames(model) {
     const controls = this.getAttribute("controls");
     if (controls === "all" || (controls == null && this.hasAttribute("model-picker")))
-      return ["ndays", "nsims", "n", "prevalence", ...model.params.map((p) => p.name)];
+      return ["ndays", "nsims", "n", "prevalence", ...model.params.map((p) => p.arg)];
     return parseList(controls);
   }
 
@@ -222,8 +223,9 @@ export class EpiworldModelElement extends HTMLElement {
     }
 
     for (const name of this._controlNames(model)) {
-      const param = model.params.find((p) => p.name === name);
-      const info = param ?? GENERAL[name];
+      const param = model.params.find((p) => p.arg === name);
+      // An argument's slider spans its limits, up to sliderMax when unbounded
+      const info = param ? { ...param, max: param.sliderMax } : GENERAL[name];
       if (!info) {
         this._showError(new Error(`Unknown control "${name}" for model ${model.id}.`));
         continue;
@@ -316,9 +318,9 @@ export class EpiworldModelElement extends HTMLElement {
     const draw = () => renderChart(this._chart, result.summary(), {
       bands: result.nsims > 1,
       hidden: this._hidden,
-      onToggle: (state) => {
-        if (this._hidden.has(state)) this._hidden.delete(state);
-        else this._hidden.add(state);
+      onToggle: (stage) => {
+        if (this._hidden.has(stage)) this._hidden.delete(stage);
+        else this._hidden.add(stage);
         draw();
       },
     });
