@@ -3,25 +3,50 @@
 
 class Model;
 
+/// Every disease: the default of the database's `disease` arguments (see
+/// `Model::disease_id()`).
+constexpr int all_diseases = -1;
+
+/**
+ * @brief Which coordinates a transition matrix is over (see
+ * `DataBase::get_transition_probability()`).
+ * @details `pair`: status × stage, as the engine records it. `stage` and
+ * `status`: the pair's counts summed over the other coordinate, so a change
+ * of status within a stage counts as staying in the stage matrix (and a
+ * change of stage within a status, in the status matrix).
+ */
+enum class Margin { pair, stage, status };
+
+/**
+ * @brief A transition matrix over a margin, with its labels.
+ * @details Row `from`, column `to`: `values[from + to * size()]`. The labels
+ * of row and column `i` are `status[i]` and `stage[i]`; `stage` is empty in a
+ * status matrix and `status` in a stage matrix.
+ */
+struct TransitionMatrix {
+    Margin margin = Margin::pair;
+    std::string disease;             ///< The disease ("" for `Margin::status`)
+    bool normalized = true;          ///< Probabilities (rows sum to 1) or counts
+    std::vector< std::string > status;
+    std::vector< std::string > stage;
+    std::vector< epiworld_double > values;
+
+    size_t size() const { return margin == Margin::status ? status.size() : stage.size(); }
+    epiworld_double operator()(size_t from, size_t to) const { return values.at(from + to * size()); }
+    std::string label(size_t i) const; ///< "status / stage", the stage, or the status
+    void print() const;
+};
+
 class Virus;
 
 class UserData;
 
 /**
- * @brief Statistical data about the process
- *
- * **Implementation details:**
- * <a href="../impl/data-collection-and-analysis.md">Data Collection and Analysis</a>,
- * <a href="../impl/generation-interval-and-reproductive-number.md">Generation Interval and Reproductive Number Calculation</a>
- *
+ * @brief The variants and the tools, by id.
+ * @details Kept once per model: a variant or a tool is not tied to one
+ * disease's records.
  */
-class DataBase {
-    friend class Model;
-private:
-    Model * model;
-
-    HospitalizationsTracker m_hospitalizations; ///< Tracker for hospitalization events
-
+struct DataRegistry {
     // Variants, by id: the viruses added to the model first (founders, kept
     // even if removed, so ids stay put), then the run's mutations
     size_t n_founders = 0u;
@@ -29,9 +54,28 @@ private:
     std::vector< int > virus_origin_date;
     std::vector< int > virus_parent_id;
 
+    std::vector< int > virus_disease; ///< The disease of each variant
+
     // Tools, by id
     std::vector< std::string > tool_name;
+    std::vector< uint64_t > tool_mask; ///< The diseases each acts on (see `DiseaseTargets`)
     std::vector< int > tool_origin_date;
+
+    bool operator==(const DataRegistry & other) const;
+};
+
+/**
+ * @brief What is recorded about one disease: counts by cell (the disease's
+ * stage × the status; today and by day), the variants' and tools'
+ * histories, transitions, transmissions and hospitalizations.
+ * @details One per disease. The engine's state of an agent combines its
+ * stages in every disease (see `Model`); each record counts its own
+ * disease's cells (`DataBase::cell_of()`).
+ */
+struct DiseaseRecord {
+    size_t ncells = 0u; ///< Its cells: stages × statuses
+
+    HospitalizationsTracker m_hospitalizations; ///< Tracker for hospitalization events
 
     // {Variant 1: {state 1, state 2, etc.}, Variant 2: {...}, ...}
     std::vector< std::vector<int> > today_virus;
@@ -44,8 +88,6 @@ private:
 
     // Totals
     int today_total_nviruses_active = 0;
-
-    int sampling_freq = 1;
 
     // Variants history
     std::vector< int > hist_virus_date;
@@ -86,8 +128,69 @@ private:
     std::vector< int > hist_transition_date;
     std::vector< int > hist_transition_id;
     std::vector< int > hist_transition_counts;
-    void record_declared_transition(int id) { ++transition_today[static_cast< size_t >(id)]; }
     ///@}
+
+    /**
+     * @name Declared transitions by variant
+     * @details The transitions taken by agents carrying a variant of the
+     * disease (or catching it, for an infection), by variant: today's counts
+     * `[variant][transition]` (empty until one is counted) and the history
+     * (see `get_hist_virus_transitions()`). Recorded for the transitions an
+     * agent with the virus can take (`virus_transitions`: the infections and
+     * those leaving a carrier stage).
+     */
+    ///@{
+    std::vector< std::vector< int > > transition_virus_today;
+    std::vector< int > virus_transitions;
+    std::vector< int > hist_transition_virus_date;
+    std::vector< int > hist_transition_virus_id;
+    std::vector< int > hist_transition_virus_transition;
+    std::vector< int > hist_transition_virus_counts;
+    ///@}
+
+    bool operator==(const DiseaseRecord & other) const;
+};
+
+/**
+ * @brief Statistical data about the process
+ *
+ * **Implementation details:**
+ * <a href="../impl/data-collection-and-analysis.md">Data Collection and Analysis</a>,
+ * <a href="../impl/generation-interval-and-reproductive-number.md">Generation Interval and Reproductive Number Calculation</a>
+ *
+ * @details The database is the one entry point (`Model::get_db()`). It
+ * holds its data in parts: the variants and tools (`DataRegistry`) and the
+ * disease's records (`DiseaseRecord`).
+ */
+class DataBase {
+    friend class Model;
+private:
+    Model * model;
+
+    DataRegistry reg;  ///< Variants and tools
+    std::vector< DiseaseRecord > recs; ///< One per disease (one without any)
+
+    /// The cells of disease `d` (the engine's states without a natural history)
+    size_t ncells_of(int d) const;
+
+    /// The cell of disease `d` of an engine state (with one disease, the state)
+    epiworld_fast_uint cell_of(int d, epiworld_fast_uint state) const;
+
+    /// The diseases a `disease` argument asks for (checked)
+    std::vector< int > diseases_of(int disease) const;
+
+    /// Counts the virus (or the tool, in the diseases it targets) in an
+    /// engine state
+    void count_virus(int virus_id, epiworld_fast_uint state, int delta);
+    void count_tool(int tool_id, epiworld_fast_uint state, int delta);
+
+    /// A variant's disease (0 for viruses without one)
+    int disease_of_virus(int virus_id) const;
+
+    /// The records of one disease, made into its history (see `record()`)
+    void record_disease(DiseaseRecord & r);
+
+    int sampling_freq = 1;
 
     UserData user_data;
 
@@ -95,6 +198,13 @@ private:
         epiworld_fast_uint prev_state,
         epiworld_fast_uint new_state,
         bool undo = false
+    );
+
+    /// update_state() with several diseases (each counts its own cells)
+    void update_state_several(
+        epiworld_fast_uint prev_state,
+        epiworld_fast_uint new_state,
+        bool undo
     );
 
     void update_virus(
@@ -111,27 +221,52 @@ private:
         bool undo = false
     );
 
-    void record_transition(epiworld_fast_uint from, epiworld_fast_uint to, bool undo);
+    void record_transition(
+        DiseaseRecord & r,
+        epiworld_fast_uint from,
+        epiworld_fast_uint to,
+        bool undo
+    );
 
     /**
-     * @brief The status and the stage of a state of the engine (the one place
+     * One more agent took the declared transition `t` (see
+     * `get_hist_transitions()`): of disease `track`, or (`t` a status
+     * transition, `-2 - index`) of the statuses, recorded once, after the
+     * first disease's transitions. A stage transition is also counted under
+     * `virus` (the agent's variant, -1 for none) if that variant is of the
+     * disease (see `get_hist_virus_transitions()`).
+     */
+    void record_declared_transition(int track, int t, int virus);
+
+    /**
+     * @brief The status and the stage of a cell of disease `d` (the one place
      * the pair is split; models without statuses have the status "Free").
      */
     void split_state(
-        epiworld_fast_uint state,
+        int d,
+        epiworld_fast_uint cell,
         std::string & status,
         std::string & stage
     ) const;
 
-    /// `split_state()` over a vector of states.
+    /// `split_state()` over a vector of cells, appended.
     void split_states(
-        const std::vector< epiworld_fast_uint > & states,
+        int d,
+        const std::vector< epiworld_fast_uint > & cells,
         std::vector< std::string > * status,
         std::vector< std::string > * stage
     ) const;
 
-    /// Today's total of a stage (`by_stage`) or of a status.
-    int today_total_of(const std::string & name, bool by_stage) const;
+    /// Today's total of a stage (`by_stage`, of the diseases `disease` asks
+    /// for) or of a status.
+    int today_total_of(const std::string & name, bool by_stage, int disease) const;
+
+    /// Checks a disease argument: `all_diseases`, or a disease of the model.
+    void check_disease(int disease) const;
+
+    /// Appends the disease column of `n` rows of disease `d` (if `names` is
+    /// not `nullptr`; `d < 0`: "").
+    void disease_rows(std::vector< std::string > * names, size_t n, int d) const;
 
 
 public:
@@ -142,7 +277,7 @@ public:
     #endif
 
     DataBase() = delete;
-    DataBase(Model & m) : model(&m), m_hospitalizations(), user_data(m) {};
+    DataBase(Model & m) : model(&m), user_data(m) {};
     DataBase(const DataBase & db);
     // DataBase & operator=(const DataBase & m);
 
@@ -187,32 +322,45 @@ public:
      * each pair for each virus and tool.
      * @return In `get_active_cases`, the number of active cases (currently infected individuals)
      * for each virus at each point in time.
+     *
+     * @param disease Which disease's rows (`Model::disease_id()`), or
+     * `all_diseases` (the default) for every disease's. An index that is not
+     * a disease of the model is an error.
+     * @param disease_names If not `nullptr`, the disease of each row (its
+     * name), one per row of the other outputs. The same two arguments end
+     * the other functions that return rows (transitions, transmissions,
+     * generation times, hospitalizations).
      */
     ///@{
-    int get_today_total_stage(const std::string & stage) const;
+    int get_today_total_stage(
+        const std::string & stage,
+        int disease = all_diseases
+    ) const;
     int get_today_total_status(const std::string & status) const;
     void get_today_total(
         std::vector< std::string > * status,
         std::vector< std::string > * stage,
-        std::vector< int > * counts
+        std::vector< int > * counts,
+        int disease = all_diseases,
+        std::vector< std::string > * disease_names = nullptr
     ) const;
 
     void get_today_virus(
         std::vector< std::string > & status,
         std::vector< std::string > & stage,
         std::vector< int > & id,
-        std::vector< int > & counts
-    ) const;
-
-    void get_today_transition_matrix(
-        std::vector< int > & counts
+        std::vector< int > & counts,
+        int disease = all_diseases,
+        std::vector< std::string > * disease_names = nullptr
     ) const;
 
     void get_hist_total(
         std::vector< int > * date,
         std::vector< std::string > * status,
         std::vector< std::string > * stage,
-        std::vector< int > * counts
+        std::vector< int > * counts,
+        int disease = all_diseases,
+        std::vector< std::string > * disease_names = nullptr
     ) const;
 
     void get_hist_virus(
@@ -220,7 +368,9 @@ public:
         std::vector< int > & id,
         std::vector< std::string > & status,
         std::vector< std::string > & stage,
-        std::vector< int > & counts
+        std::vector< int > & counts,
+        int disease = all_diseases,
+        std::vector< std::string > * disease_names = nullptr
     ) const;
 
     void get_hist_tool(
@@ -228,7 +378,9 @@ public:
         std::vector< int > & id,
         std::vector< std::string > & status,
         std::vector< std::string > & stage,
-        std::vector< int > & counts
+        std::vector< int > & counts,
+        int disease = all_diseases,
+        std::vector< std::string > * disease_names = nullptr
     ) const;
 
     /**
@@ -241,7 +393,37 @@ public:
     void get_hist_transitions(
         std::vector< int > & date,
         std::vector< std::string > & transition,
-        std::vector< int > & counts
+        std::vector< int > & counts,
+        int disease = all_diseases,
+        std::vector< std::string > * disease_names = nullptr
+    ) const;
+
+    /**
+     * @brief How many agents carrying each variant took each declared
+     * transition of its disease.
+     * @details One row per recorded day, variant and transition, in that
+     * order. The transitions are those an agent with the virus can take: the
+     * infections (counted under the variant caught) and those leaving a
+     * carrier stage. Over the variants of a disease, a transition's counts add
+     * up to its count in `get_hist_transitions()`, except for an external
+     * transition that also leaves stages without the virus (its count there
+     * includes those agents). Seeding and imports are not transitions, as in
+     * `get_hist_transitions()`. The status transitions are not by variant.
+     * @param date The day.
+     * @param id The variant (its id; see `get_virus_name()`).
+     * @param transition The transition's name.
+     * @param counts How many agents took it that day.
+     * @param disease Only this disease's variants (`all_diseases`: every
+     * disease, one after the other).
+     * @param disease_names If given, the disease of each row.
+     */
+    void get_hist_virus_transitions(
+        std::vector< int > & date,
+        std::vector< int > & id,
+        std::vector< std::string > & transition,
+        std::vector< int > & counts,
+        int disease = all_diseases,
+        std::vector< std::string > * disease_names = nullptr
     ) const;
 
     void get_hist_transition_matrix(
@@ -251,19 +433,25 @@ public:
         std::vector< std::string > & stage_to,
         std::vector< int > & date,
         std::vector< int > & counts,
-        bool skip_zeros
+        bool skip_zeros,
+        int disease = all_diseases,
+        std::vector< std::string > * disease_names = nullptr
     ) const;
 
     void get_active_cases(
         std::vector< int > & date,
         std::vector< int > & virus_id,
-        std::vector< int > & count
+        std::vector< int > & count,
+        int disease = all_diseases,
+        std::vector< std::string > * disease_names = nullptr
     ) const;
 
     void get_outbreak_size(
         std::vector< int > & date,
         std::vector< int > & virus_id,
-        std::vector< int > & size
+        std::vector< int > & size,
+        int disease = all_diseases,
+        std::vector< std::string > * disease_names = nullptr
     ) const;
     ///@}
 
@@ -285,17 +473,11 @@ public:
         std::vector<int> & target,
         std::vector<int> & virus,
         std::vector<int> & source_exposure_date,
-        std::vector<int> & layer
+        std::vector<int> & layer,
+        int disease = all_diseases,
+        std::vector< std::string > * disease_names = nullptr
     ) const;
 
-    void get_transmissions(
-        int * date,
-        int * source,
-        int * target,
-        int * virus,
-        int * source_exposure_date,
-        int * layer
-    ) const;
     ///@}
 
     void write_data(
@@ -334,6 +516,22 @@ public:
     void record_transmission(int i, int j, int virus, int i_expo_date, int layer = -1);
 
     size_t get_n_viruses() const; ///< Get the number of viruses
+
+    /**
+     * @brief A variant's name and disease, by its id.
+     * @details Every variant is recorded here, including those from
+     * mutations, which are not among the model's viruses (`Model::get_virus()`
+     * takes a position in the model, not a variant's id). Use these to label
+     * the variant ids the outputs return.
+     * @param virus_id The variant's id (`Virus::get_id()`).
+     * @return `get_virus_name()`, its name; `get_virus_disease()`, the index
+     * of its disease in `Model::get_diseases()`.
+     * @throws std::out_of_range If no variant has that id.
+     */
+    ///@{
+    const std::string & get_virus_name(int virus_id) const;
+    int get_virus_disease(int virus_id) const;
+    ///@}
     size_t get_n_tools() const; ///< Get the number of tools
 
     void set_user_data(std::vector< std::string > names);
@@ -362,7 +560,7 @@ public:
      * at the beginning of the simulation.
      */
     ///@{
-    MapVec_type<int,int> get_reproductive_number() const;
+    MapVec_type<int,int> get_reproductive_number(int disease = all_diseases) const;
 
     void get_reproductive_number(
         std::string fn
@@ -370,20 +568,21 @@ public:
     ///@}
 
     /**
-     * @brief Calculates the transition probabilities
-     * @param print Print the transition matrix.
-     * @param normalize Normalize the transition matrix. Otherwise,
-     * it returns raw counts.
-     * @details
-     * The transition matrix is the matrix of the counts of transitions
-     * from one state to another. So the ij-th element of the matrix is
-     * the number of transitions from state i to state j (when not normalized),
-     * or the probability of transitioning from state i to state j
-     * (when normalized).
-     * @return std::vector< epiworld_double >
+     * @brief The transitions over the whole run, as probabilities or counts
+     * @param margin `Margin::pair` (status × stage), `Margin::stage` or
+     * `Margin::status`.
+     * @param disease The disease (`Model::disease_id()`). `all_diseases`, the
+     * default, is that one disease when the model has one; with several, a
+     * pair or stage matrix needs the disease (a status matrix does not: it is
+     * the same for every disease).
+     * @param normalize Probabilities (each row with transitions sums to 1),
+     * or the counts.
+     * @details Entry (i, j) counts the agent-days that started in i and ended
+     * in j (staying counts, on the diagonal).
      */
-    std::vector< epiworld_double > get_transition_probability(
-        bool print = true,
+    TransitionMatrix get_transition_probability(
+        Margin margin = Margin::pair,
+        int disease = all_diseases,
         bool normalize = true
     ) const;
 
@@ -403,7 +602,9 @@ public:
         std::vector< int > & agent_id,
         std::vector< int > & virus_id,
         std::vector< int > & time,
-        std::vector< int > & gentime
+        std::vector< int > & gentime,
+        int disease = all_diseases,
+        std::vector< std::string > * disease_names = nullptr
     ) const; ///< Get the generation time
 
     void get_generation_time(
@@ -456,7 +657,9 @@ public:
         std::vector<int> & virus_id,
         std::vector<int> & tool_id,
         std::vector<int> & count,
-        std::vector<double> & weight
+        std::vector<double> & weight,
+        int disease = all_diseases,
+        std::vector< std::string > * disease_names = nullptr
     ) const;
 
 };

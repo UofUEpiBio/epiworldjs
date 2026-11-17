@@ -37,11 +37,11 @@ int main() {
 
         const auto out = epiworldjs::run_many(spec);
         const auto & t = out.at("total_hist");
-        CHECK(t.colnames == (std::vector<std::string>{"sim_id", "date", "nviruses", "status", "stage", "counts"}));
+        CHECK(t.colnames == (std::vector<std::string>{"sim_id", "disease", "date", "nviruses", "status", "stage", "counts"}));
 
         // One row per status and stage a day, and every day accounts for every agent
-        const auto & stages = std::get<std::vector<std::string>>(t.columns[4]);
-        const auto & counts = std::get<std::vector<int>>(t.columns[5]);
+        const auto & stages = std::get<std::vector<std::string>>(t.columns[5]);
+        const auto & counts = std::get<std::vector<int>>(t.columns[6]);
         const auto labels = epiworldjs::labels(info);
         const size_t k = labels.stages.size() * labels.statuses.size();
         CHECK(t.nrow() == 2u * 21u * k);

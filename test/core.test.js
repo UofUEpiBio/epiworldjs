@@ -45,7 +45,7 @@ for (const model of core.models()) {
     const n = 500, ndays = 20, nsims = 2;
     const { total_hist: t } = core.run({ model: model.id, n, ndays, nsims });
 
-    assert.deepEqual(Object.keys(t), ["sim_id", "date", "nviruses", "status", "stage", "counts"]);
+    assert.deepEqual(Object.keys(t), ["sim_id", "disease", "date", "nviruses", "status", "stage", "counts"]);
     assert.ok(t.counts instanceof Int32Array);
     // One row per status and stage a day
     const k = model.stages.length * model.statuses.length;
