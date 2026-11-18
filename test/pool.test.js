@@ -84,8 +84,8 @@ test("toCSV() writes one row per table row, with a header", async () => {
   const ew = await Epiworld.load({ workers: 0 });
   const res = await ew.run({ model: "SIR", n: 100, ndays: 3 });
   const lines = res.toCSV().trimEnd().split("\n");
-  assert.equal(lines[0], "sim_id,date,nviruses,status,stage,counts");
+  assert.equal(lines[0], "sim_id,disease,date,nviruses,status,stage,counts");
   assert.equal(lines.length, 1 + 4 * 3);
-  assert.match(lines[1], /^0,0,1,Free,Susceptible,\d+$/);
+  assert.match(lines[1], /^0,Disease,0,1,Free,Susceptible,\d+$/);
   assert.throws(() => res.toCSV("transition"), /No "transition" output/);
 });

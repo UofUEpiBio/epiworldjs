@@ -167,22 +167,31 @@ inline void Agent::set_virus(
         );
 
     // With a natural history, a virus given from outside (seeding, an
-    // import) follows the infection transition out of the agent's stage
-    if (model.nh && (state_new == -99))
+    // import) follows the infection transition out of the agent's stage in
+    // the virus's disease
+    bool seeded = false;
+    if (!model.tracks.empty() && (state_new == -99))
     {
 
-        const int tr = model.nh->get_stage_info(model.nh_stage_of(state)).infection;
+        const auto & track = model.nh_track(&virus);
+        const auto & nh = *track.nh;
+        const int s = model.nh_stage_of(track, state);
+        const int tr = nh.get_stage_info(s).infection;
         if (tr < 0)
             throw std::logic_error(
                 "Agent " + std::to_string(id) + " is in the stage \"" +
-                model.nh->get_stages()[model.nh_stage_of(state)] + "\", which has no infection "
-                "transition, so it cannot be given a virus."
+                nh.get_stages()[static_cast< size_t >(s)] + "\" of \"" +
+                nh.get_name() + "\", which has no infection transition, so it "
+                "cannot be given a virus."
             );
 
-        state_new = model.nh->get_transition(tr).to;
+        state_new = nh.get_transition(tr).to;
         queue = Queue::NoOne;
         if (model.nh_pending == -1)
+        {
             model.nh_pending = Model::NH_SEED;
+            seeded = true;
+        }
 
     }
 
@@ -196,10 +205,16 @@ inline void Agent::set_virus(
 
     VirusPtr virus_ptr = std::shared_ptr<Virus>(virus.clone_ptr());
 
+    // The event is of the virus's disease
+    const int track_before = model.nh_pending_track;
+    model.nh_pending_track = virus.disease;
     model._add_event(
         this, virus_ptr, nullptr, state_new, queue, EventAction::AddVirus,
         model.take_sampled_layer()
         );
+    model.nh_pending_track = track_before;
+    if (seeded)
+        model.nh_pending = -1;
 
 }
 

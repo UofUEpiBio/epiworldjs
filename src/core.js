@@ -76,7 +76,8 @@ function loadModule() {
  *
  * @typedef {Object<string, Object<string, Int32Array | Float64Array | string[]>>} Tables
  *   Output name → column name → values. Columns match epiworld's CSV files,
- *   preceded by a 0-based `sim_id`.
+ *   preceded by a 0-based `sim_id`; every table has a `disease` column
+ *   after it (the disease the rows belong to).
  */
 
 export class Core {
